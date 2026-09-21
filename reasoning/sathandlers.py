@@ -14,6 +14,7 @@ from sympy.logic.boolalg import And, Or
 from sympy.matrices.expressions import MatMul
 
 from reasoning.clauses import AND, EQUIVALENT, IMPLIES, NOT, OR
+from reasoning.functionfacts import register_function_facts
 from reasoning.numberfacts import number_facts
 from reasoning.predicates import Q
 from reasoning.registry import ClassFactRegistry
@@ -156,6 +157,8 @@ def _pow_facts(expr: SymPyExpr) -> list[object]:
 
 class_fact_registry.multiregister(
     Number, NumberSymbol, ImaginaryUnit, ComplexInfinity)(number_facts)
+
+register_function_facts(class_fact_registry)
 
 
 __all__ = [
