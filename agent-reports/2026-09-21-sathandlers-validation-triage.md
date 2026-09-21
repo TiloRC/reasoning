@@ -1,60 +1,79 @@
 # Agent report: would expanding sathandlers pass more validation tests?
 
-- **Date:** 2026-09-21
-- **Status:** investigation complete, no source changes made
+- **Date:** 2026-09-21 (updated same day after commits `bbe3031`, `198df09`)
+- **Status:** investigation complete; the first recommended milestone (number facts) has
+  already landed, so the numbers and plan below are newer than the original version
 - **Scope:** `validation/test_query.py` + `validation/test_matrices.py` against pinned
   SymPy `ddbb536d` (1.15.0.dev)
-- **Read this if:** you are editing `reasoning/sathandlers.py`, the known-facts import
-  in `reasoning/sympy_adapter.py`, or trying to raise the validation pass rate
-- **Stale after:** any change to `sathandlers.py`, `sympy_adapter.py`, the SymPy pin,
-  or the validation results
-- **TL;DR:** Yes. About 59 of the 68 failures are blocked only on missing
-  per-expression-class facts; about 9 need non-handler infrastructure.
-  Baseline: reasoning 26/104, SymPy `satask` 24/104, full SymPy `ask` 94/104.
+- **Read this if:** you are editing `reasoning/sathandlers.py`, `reasoning/numberfacts.py`,
+  the known-facts import in `reasoning/sympy_adapter.py`, or trying to raise the
+  validation pass rate
+- **Stale after:** any change to `sathandlers.py`, `numberfacts.py`, `sympy_adapter.py`,
+  the comparison policy in `validation/compare_backends.py`, the SymPy pin, or the
+  validation results
+- **TL;DR:** Yes, but "expand sathandlers" is 3-4 commits, not one. Current:
+  reasoning **40/104**, SymPy `satask` 24/104, full SymPy `ask` 94/104. Of the 54
+  remaining failures, ~45 are handler-addressable but split into matrix (18),
+  Add/Mul/Pow closure (18), elementary functions (6), 2 old-assumption-flavored cases,
+  and a Symbol bridge (1); 9 need non-handler infrastructure. Projected landing after
+  all handler work: **~73-78/104**.
 
-## What was run
+## Current results
 
 ```
-.venv/bin/python validation/compare_backends.py --verbose
+.venv/bin/python validation/compare_backends.py --timings 0   # exit 0
 .venv/bin/python -m pytest validation/test_query.py validation/test_matrices.py -q --tb=line
-.venv/bin/python -m pytest <upstream suite copy> -q   # SymPy's own ask: 94 passed, 10 failed
+.venv/bin/python -m pytest reasoning/tests -q                 # 74 passed, 1 xfailed
 ```
 
-## Findings
+- `compare_backends.py` now exits 0 under the updated policy (working-tree change,
+  possibly uncommitted when you read this): "reasoning passes, SymPy does not" is an
+  improvement, not a mismatch; "same outcome, different failure" is informational.
+  Exit 1 only when SymPy passes a test reasoning fails, or another non-improvement
+  outcome disagreement. It reports 16 improvements.
+- Since the original report, `198df09` replaced the old-assumption number getters with
+  `reasoning/numberfacts.py` (static per-class tables plus `isprime`, no `is_*` reads),
+  and `bbe3031` added `tools/check_old_assumptions.py`, an advisory AST checker that
+  flags reliance on old assumptions (`is_*`, `assumptions0`, assumption keywords).
+  Result: 26 -> 40 passed; all 14 number-class failures named in the original version
+  now pass.
 
-- Reasoning currently passes 26/104, upstream `satask` 24/104, full `ask` 94/104.
-  `compare_backends.py` exits 1: it treats "reasoning passes, SymPy satask fails" as an
-  outcome mismatch. It already flags `test_composite_proposition` and `test_issue_3906`.
-- The adapter already imports SymPy's complete known predicate facts
-  (`get_all_known_number_facts`, `get_all_known_matrix_facts`), so predicate-to-predicate
-  relations are not the gap. I verified the encoding polarity in `_known_template` is
-  correct; an apparent inversion was a false alarm about `Literal.is_Not` semantics.
-- Failures by first failing assertion, roughly:
-  - **~59 class-fact addressable:** number getters (`antihermitian`, `algebraic`,
-    `commutative`, `hermitian`, `transcendental`, ...); Add/Mul/Pow structural facts
-    (parity, sign, real/complex/finite/rational closure); elementary-function handlers
-    (`sin`, `cos`, `exp`, `log`, `atan`, `re`, `im`, ...); all 16 matrix tests
-    (MatrixSymbol/MatMul/MatPow/Transpose/Trace/Determinant/MatrixSlice/BlockMatrix/
-    element sets); a `Symbol` handler reading old assumptions.
-  - **~9 not handler-addressable:** `context=` kwarg (`test_custom_context`),
-    `global_assumptions` (`test_global`), custom predicate/handler registration
-    (`test_key_extensibility`, `test_type_extensibility`, `test_custom_AskHandler`,
-    `test_polyadic_predicate`), relational predicate mapping (`test_relational`,
-    `test_issue_28127`), numeric evaluation (`test_Add_queries`).
-- Monkeypatched extra number getters fixed `test_zero_0` and `test_nan` outright. For
-  nonzero reals, `expr.is_antihermitian` is `None`, so `antihermitian(1) -> False` needs
-  a derived fact (e.g. real & nonzero implies not antihermitian, or antihermitian is
-  equivalent to imaginary-or-zero for numbers).
-- Known facts contain `zero -> hermitian | antihermitian` but not the converse, so
-  `Q.hermitian(I)` cannot be refuted from `imaginary(I)` + `antihermitian(I)`; a handler
-  fact is required. This was initially suspected to be a propagation bug; it is not.
+## Remaining 54 failures by group
 
-## Suggested next steps
+| Group | Count | Notes |
+|---|---|---|
+| Matrix expressions | 18 | 17 `test_matrices.py` tests plus `test_matrix` |
+| Add/Mul/Pow structural | 18 | parity, sign, closure, commutativity, algebraic/transcendental; e.g. `test_pi` now stops at `Q.algebraic(pi + 1)`, `test_I` at `Q.commutative(1 + I)` |
+| Function-dependent | 6 | `test_bounded`, `test_positive`, `test_real_functions`, `test_algebraic`, `test_issue_5833` (`log`), `test_issue_7246` (inverse trig) |
+| Old-assumption-flavored | 2 | `test_integer` (`integer(sqrt(2)*x)` -> False), `test_prime` (`prime(4*x)` -> False); upstream likely answers via old assumptions |
+| Symbol old-assumption bridge | 1 | `test_check_old_assumption`; `tools/check_old_assumptions.py` flags exactly this |
+| Non-handler / API | 9 | `context=` kwarg, `global_assumptions`, custom predicate/handler registration (4), relational predicates (2), `test_Add_queries` numeric evaluation |
 
-1. Extend the number handler first (cheap, fixes ~12 tests): getters for
-   `antihermitian`, `hermitian`, `algebraic`, `transcendental`, `commutative`,
-   `extended_real`, `finite`, plus derived number facts.
-2. Add Add/Mul/Pow structural facts (parity, sign, closure), then elementary-function
-   handlers, then matrix-expression handlers (largest group, 16 tests).
-3. Decide whether beating upstream `satask` should keep failing
-   `compare_backends.py`; otherwise every improvement will be reported as a mismatch.
+## Findings that still hold
+
+- The adapter already imports SymPy's complete known predicate facts, so
+  predicate-to-predicate relations are mostly not the gap. The encoding polarity in
+  `_known_template` is correct; an apparent inversion was a false alarm about
+  `Literal.is_Not` semantics.
+- Not a propagation bug: the earlier `Q.hermitian(I)` mystery was missing facts (known
+  facts carry `zero -> hermitian | antihermitian`, not the converse), and `numberfacts`
+  now supplies the missing number facts directly.
+- Handler work also requires curating the known-fact layer for clauses class facts
+  cannot express (e.g. `hermitian & imaginary -> ~hermitian`).
+- Full `ask` passes every test still failing here, so the suite itself is not the
+  ceiling; the gap is the handler/old-assumption machinery `ask` has and `satask` does
+  not.
+
+## Properly scoped next steps (the old "step 2" was too broad)
+
+| Unit | What it needs | Rough size | Test payoff |
+|---|---|---|---|
+| 2a. Add/Mul/Pow closure | ~20-30 facts over sign, parity, real/complex/finite/extended_real/algebraic/transcendental/imaginary/hermitian | one file, `numberfacts` scale | ~14-16 |
+| 2b. Elementary functions | `sin/cos/tan/cot/asin/acos/atan/acot/exp/log/Abs/re/im/factorial`, several predicates each, plus branch semantics for `log` and fractional powers | comparable to 2x `numberfacts` | ~4-5 standalone, also unblocks assertions inside 2a tests |
+| 2c. Matrix expressions | ~20 matrix classes x ~15 predicates (invertible, fullrank, symmetric, orthogonal, unitary, positive_definite, triangular, diagonal, element sets, ...) | largest unit; SymPy's matrix handler is several hundred dispatch rules | ~15-17 |
+| 2d. Symbol old-assumption bridge | read `Symbol('x', real=True)` etc. | small | 1, but flagged by `tools/check_old_assumptions.py` |
+
+Calibration: `numberfacts` was ~320 fact lines plus ~270 test lines and netted 14
+tests. Expect 2a about that size, 2b somewhat larger, 2c larger still. Tests are
+all-or-nothing, so a single missing rule keeps a whole test red; the payoffs above are
+per-unit ceilings, not additive guarantees. Projected total: 40 + 33-38 = **~73-78/104**.
