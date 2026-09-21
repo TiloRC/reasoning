@@ -14,8 +14,9 @@
   `validation/compare_backends.py`, the SymPy pin, or the validation results
 - **TL;DR:** `main` is at reasoning **40/104**, SymPy `satask` 24/104, full SymPy `ask`
   94/104. Branch `agent/add-mul-pow-and-function-facts` reaches **52/104** (18 matrix,
-  14 handler tails, 1 Symbol bridge and 9 non-handler failures left). "Expand
-  sathandlers" is 3-4 commits; two of them (Add/Mul/Pow structural facts, elementary
+  12 handler tails, 2 old-assumption-flavored, 1 Symbol bridge and 9 non-handler
+  failures left). "Expand sathandlers" is 3-4 commits; two of them (Add/Mul/Pow
+  structural facts, elementary
   functions) are largely done on that branch, matrix facts are untouched.
 
 ## Where the work landed
@@ -54,7 +55,7 @@ Merge notes for future agents:
 | Group | Count | Notes |
 |---|---|---|
 | Matrix expressions | 18 | 17 `test_matrices.py` tests plus `test_matrix`; untouched, largest remaining block |
-| Handler tails | 14 | `test_I`, `complex`, `even_query`, `rational`, `hermitian`, `imaginary`, `nonzero`, `real_pow` (structural tails) and `bounded`, `positive`, `real_functions`, `algebraic` (structural + function tails) |
+| Handler tails | 12 | `test_I`, `complex`, `negative`, `rational`, `hermitian`, `imaginary`, `nonzero`, `real_pow` (structural tails) and `bounded`, `positive`, `real_functions`, `algebraic` (structural + function tails) |
 | Old-assumption-flavored | 2 | `test_integer` (`integer(sqrt(2)*x)` -> False), `test_prime` (`prime(4*x)` -> False); upstream likely answers via old assumptions |
 | Symbol old-assumption bridge | 1 | `test_check_old_assumption`; `tools/check_old_assumptions.py` flags exactly this |
 | Non-handler / API | 9 | `context=` kwarg, `global_assumptions`, custom predicate/handler registration (4), relational predicates (2), `test_Add_queries` numeric evaluation |
