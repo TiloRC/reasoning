@@ -1,15 +1,17 @@
-"""Compare satask backends by running the validation suite against each.
+"""Compare satask backends by running the validation suites against each.
 
 Example::
 
     .venv/bin/python validation/compare_backends.py
 
-``validation/test_query.py`` re-exports SymPy's pinned ``test_query`` suite
-with ``ask`` and ``_ask_recursive`` rebound to this checkout's ``satask``.  The
-SymPy backend runs a temporary re-export of the same upstream suite with those
-names rebound to ``sympy.assumptions.satask``.  Each backend runs in its own
-pytest subprocess; per-test outcomes and timings are compared.  The exit status
-is 1 when the backends disagree and 0 otherwise.
+``validation/test_query.py`` and ``validation/test_matrices.py`` re-export
+SymPy's pinned upstream suites with ``ask`` and ``_ask_recursive`` rebound to
+this checkout's ``satask``.  The SymPy backend runs temporary re-exports of
+the same upstream suites with those names rebound to
+``sympy.assumptions.satask``.  Each backend runs in its own pytest subprocess;
+per-test outcomes, timings, and failure texts are compared.  The exit status is
+1 when the backends disagree on an outcome, or when both fail (or error) the
+same test with different failure content; it is 0 otherwise.
 """
 from __future__ import annotations
 
@@ -24,34 +26,53 @@ from pathlib import Path
 from time import perf_counter
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SUITE = Path(__file__).resolve().parent / "test_query.py"
+DEFAULT_SUITES = (Path(__file__).resolve().parent / "test_query.py",
+                  Path(__file__).resolve().parent / "test_matrices.py")
 BACKENDS = ("reasoning", "sympy")
-SYMPY_SUITE = "sympy.assumptions.tests.test_query"
-SYMPY_PACKAGE, SYMPY_MODULE = SYMPY_SUITE.rsplit(".", 1)
+SYMPY_PACKAGE = "sympy.assumptions.tests"
 SYMPY_BACKEND_SUITE = f"""\
-from {SYMPY_PACKAGE} import {SYMPY_MODULE} as _suite
+from {SYMPY_PACKAGE} import {{module}} as _suite
 from sympy.assumptions.satask import satask as _satask
 
 _suite.ask = _satask
 _suite._ask_recursive = _satask
 
-from {SYMPY_SUITE} import *  # noqa: E402,F401,F403
+from {SYMPY_PACKAGE}.{{module}} import *  # noqa: E402,F401,F403
 """
 REASONING_BINDING = "from reasoning.satask import satask"
 
 OUTCOME = re.compile(r"^(PASSED|FAILED|ERROR|XFAIL|XPASS|SKIPPED)\s+(\S+)", re.MULTILINE)
 OUTCOMES = ("PASSED", "FAILED", "ERROR", "XFAIL", "XPASS", "SKIPPED")
+BACKEND_SUFFIX = re.compile(r"_(?:reasoning|sympy)\b")
 
 
-def write_sympy_suite(directory: Path) -> Path:
-    target = directory / "test_query_sympy.py"
-    target.write_text(SYMPY_BACKEND_SUITE)
+def write_sympy_suite(directory: Path, suite: Path) -> Path:
+    target = directory / f"{suite.stem}_sympy.py"
+    target.write_text(SYMPY_BACKEND_SUITE.format(module=suite.stem))
     return target
 
 
-def run_pytest(suite: Path, report: Path, pytest_args: list[str]) -> tuple[str, float]:
+def comparison_key(nodeid: str) -> str:
+    parts = nodeid.split("::")
+    stem = BACKEND_SUFFIX.sub("", Path(parts[0]).stem)
+    return "::".join([stem, *parts[1:]])
+
+
+def normalize_failure(text: str, roots: tuple[Path, ...]) -> str:
+    for root in roots:
+        text = text.replace(str(root), "<repo>")
+    text = re.sub(r"/(?:[A-Za-z.~][\w@.-]*/)+[A-Za-z.~][\w@.-]*", "<abs>", text)
+    text = re.sub(r"(<(?:abs|repo)>):\d+", r"\1", text)
+    text = BACKEND_SUFFIX.sub("", text)
+    text = re.sub(r"\.py:\d+", ".py", text)
+    text = re.sub(r"0x[0-9a-fA-F]+", "0x...", text)
+    text = re.sub(r"\b\d+(?:\.\d+)?\s*(?:s\b|seconds\b)", "<time>", text)
+    return " ".join(text.split())
+
+
+def run_pytest(suites: list[Path], report: Path, pytest_args: list[str]) -> tuple[str, float]:
     command = [
-        sys.executable, "-m", "pytest", str(suite),
+        sys.executable, "-m", "pytest", *[str(suite) for suite in suites],
         "-q", "--tb=no", "-rA", "--color=no", "--no-header",
         "-p", "no:cacheprovider", f"--junit-xml={report}", *pytest_args,
     ]
@@ -63,30 +84,40 @@ def run_pytest(suite: Path, report: Path, pytest_args: list[str]) -> tuple[str, 
 def parse_outcomes(output: str) -> dict[str, str]:
     outcomes = {}
     for outcome, nodeid in OUTCOME.findall(output):
-        outcomes[nodeid.rsplit("::", 1)[-1]] = outcome
+        outcomes[comparison_key(nodeid)] = outcome
     return outcomes
 
 
-def parse_timings(report: Path) -> dict[str, float]:
+def parse_report(report: Path, tmpdir: Path) -> tuple[dict[str, float], dict[str, str]]:
+    """Return per-test timings and normalized failure texts from the JUnit XML."""
     if not report.exists():
-        return {}
-    return {case.get("name"): float(case.get("time", 0.0))
-            for case in ET.parse(report).getroot().iter("testcase")}
+        return {}, {}
+    timings, failures = {}, {}
+    for case in ET.parse(report).getroot().iter("testcase"):
+        module = case.get("classname", "").rsplit(".", 1)[-1]
+        key = f"{BACKEND_SUFFIX.sub('', module)}::{case.get('name')}"
+        timings[key] = float(case.get("time", 0.0))
+        for node in case:
+            if node.tag in ("failure", "error"):
+                text = f"{node.get('message', '')}\n{node.text or ''}"
+                failures[key] = normalize_failure(text, (ROOT, tmpdir))
+    return timings, failures
 
 
-def run_backend(backend: str, suite: Path,
-                pytest_args: list[str]) -> tuple[dict[str, str], dict[str, float], float]:
-    with tempfile.TemporaryDirectory(dir=suite.parent) as directory:
+def run_backend(backend: str, suites: list[Path],
+                pytest_args: list[str]) -> tuple[dict[str, str], dict[str, float],
+                                                 dict[str, str], float]:
+    with tempfile.TemporaryDirectory(dir=suites[0].parent) as directory:
         directory = Path(directory)
-        target = (suite if backend == "reasoning"
-                  else write_sympy_suite(directory))
-        output, wall = run_pytest(target, directory / "report.xml", pytest_args)
-        timings = parse_timings(directory / "report.xml")
+        targets = suites if backend == "reasoning" else [
+            write_sympy_suite(directory, suite) for suite in suites]
+        output, wall = run_pytest(targets, directory / "report.xml", pytest_args)
+        timings, failures = parse_report(directory / "report.xml", directory)
     outcomes = parse_outcomes(output)
     if not outcomes:
         print(output, file=sys.stderr)
         raise SystemExit(f"pytest collected no tests for the {backend} backend")
-    return outcomes, timings, wall
+    return outcomes, timings, failures, wall
 
 
 def summarize(outcomes: dict[str, str]) -> str:
@@ -99,7 +130,8 @@ def format_time(seconds: float | None) -> str:
     return "-" if seconds is None else f"{seconds:.2f}s"
 
 
-def print_timings(backends: dict[str, tuple[dict[str, str], dict[str, float], float]],
+def print_timings(backends: dict[str, tuple[dict[str, str], dict[str, float],
+                                             dict[str, str], float]],
                   count: int) -> None:
     reasoning = backends["reasoning"][1]
     sympy_ = backends["sympy"][1]
@@ -120,7 +152,8 @@ def print_timings(backends: dict[str, tuple[dict[str, str], dict[str, float], fl
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--suite", type=Path, default=DEFAULT_SUITE)
+    parser.add_argument("--suite", type=Path, default=None, metavar="SUITE",
+                        help="run this single suite instead of the default two")
     parser.add_argument("--pytest-args", nargs=argparse.REMAINDER, default=[],
                         help="extra arguments forwarded to pytest")
     parser.add_argument("--timings", type=int, default=10,
@@ -129,13 +162,15 @@ def main() -> None:
                         help="list each backend's failing tests")
     args = parser.parse_args()
 
-    if REASONING_BINDING not in args.suite.read_text():
-        raise SystemExit(f"{args.suite} does not bind satask from reasoning")
+    suites = [args.suite] if args.suite else list(DEFAULT_SUITES)
+    for suite in suites:
+        if REASONING_BINDING not in suite.read_text():
+            raise SystemExit(f"{suite} does not bind satask from reasoning")
 
-    backends = {name: run_backend(name, args.suite, args.pytest_args)
+    backends = {name: run_backend(name, suites, args.pytest_args)
                 for name in BACKENDS}
 
-    for name, (outcomes, timings, wall) in backends.items():
+    for name, (outcomes, timings, _, wall) in backends.items():
         print(f"{name}: {len(outcomes)} tests: {summarize(outcomes)} "
               f"(wall {wall:.2f}s, tests {sum(timings.values()):.2f}s)")
         if args.verbose:
@@ -156,7 +191,19 @@ def main() -> None:
             print(f"  {test}: reasoning={reasoning_outcome} sympy={sympy_outcome}")
     else:
         print("\nNo outcome mismatches.")
-    raise SystemExit(1 if mismatches else 0)
+
+    differing = []
+    for test in sorted(reasoning.keys() & sympy_.keys()):
+        outcome = reasoning[test]
+        if (outcome == sympy_[test] and outcome in ("FAILED", "ERROR")
+                and backends["reasoning"][2].get(test) != backends["sympy"][2].get(test)):
+            differing.append(test)
+    if differing:
+        print(f"\n{len(differing)} same outcome, different failure:")
+        for test in differing:
+            print(f"  {test}")
+
+    raise SystemExit(1 if mismatches or differing else 0)
 
 
 if __name__ == "__main__":
