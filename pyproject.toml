@@ -27,7 +27,7 @@ testpaths = ["reasoning/tests", "validation"]
 
 [tool.mypy]
 python_version = "3.10"
-files = ["reasoning", "benchmarks", "validation", "conftest.py"]
+files = ["reasoning", "benchmarks", "validation", "tools", "conftest.py"]
 strict = true
 
 [[tool.mypy.overrides]]
