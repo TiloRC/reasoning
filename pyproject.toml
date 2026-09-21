@@ -23,4 +23,4 @@ reasoning = ["LICENSE.sympy"]
 include = ["reasoning*"]
 
 [tool.pytest.ini_options]
-testpaths = ["reasoning/tests", "evaluation"]
+testpaths = ["reasoning/tests", "validation"]

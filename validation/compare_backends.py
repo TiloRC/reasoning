@@ -1,10 +1,10 @@
-"""Compare satask backends by running the evaluation suite against each.
+"""Compare satask backends by running the validation suite against each.
 
 Example::
 
-    .venv/bin/python evaluation/compare_backends.py
+    .venv/bin/python validation/compare_backends.py
 
-``evaluation/test_query.py`` imports this checkout's ``satask`` as both ``ask``
+``validation/test_query.py`` imports this checkout's ``satask`` as both ``ask``
 and ``_ask_recursive``.  The SymPy backend runs a temporary copy of the suite
 with those two imports redirected to ``sympy.assumptions.satask``.  Each
 backend runs in its own pytest subprocess; per-test outcomes and timings are
