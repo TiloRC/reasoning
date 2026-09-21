@@ -4,11 +4,12 @@ Example::
 
     .venv/bin/python validation/compare_backends.py
 
-``validation/test_query.py`` imports this checkout's ``satask`` as both ``ask``
-and ``_ask_recursive``.  The SymPy backend runs a temporary copy of the suite
-with those two imports redirected to ``sympy.assumptions.satask``.  Each
-backend runs in its own pytest subprocess; per-test outcomes and timings are
-compared.  The exit status is 1 when the backends disagree and 0 otherwise.
+``validation/test_query.py`` re-exports SymPy's pinned ``test_query`` suite
+with ``ask`` and ``_ask_recursive`` rebound to this checkout's ``satask``.  The
+SymPy backend runs a temporary re-export of the same upstream suite with those
+names rebound to ``sympy.assumptions.satask``.  Each backend runs in its own
+pytest subprocess; per-test outcomes and timings are compared.  The exit status
+is 1 when the backends disagree and 0 otherwise.
 """
 from __future__ import annotations
 
@@ -24,28 +25,27 @@ from time import perf_counter
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SUITE = Path(__file__).resolve().parent / "test_query.py"
+BACKENDS = ("reasoning", "sympy")
+SYMPY_SUITE = "sympy.assumptions.tests.test_query"
+SYMPY_PACKAGE, SYMPY_MODULE = SYMPY_SUITE.rsplit(".", 1)
+SYMPY_BACKEND_SUITE = f"""\
+from {SYMPY_PACKAGE} import {SYMPY_MODULE} as _suite
+from sympy.assumptions.satask import satask as _satask
 
-IMPORTS = {
-    "reasoning": (
-        "from reasoning.satask import satask as ask\n"
-        "from reasoning.satask import satask as _ask_recursive\n"
-    ),
-    "sympy": (
-        "from sympy.assumptions.satask import satask as ask\n"
-        "from sympy.assumptions.satask import satask as _ask_recursive\n"
-    ),
-}
+_suite.ask = _satask
+_suite._ask_recursive = _satask
+
+from {SYMPY_SUITE} import *  # noqa: E402,F401,F403
+"""
+REASONING_BINDING = "from reasoning.satask import satask"
 
 OUTCOME = re.compile(r"^(PASSED|FAILED|ERROR|XFAIL|XPASS|SKIPPED)\s+(\S+)", re.MULTILINE)
 OUTCOMES = ("PASSED", "FAILED", "ERROR", "XFAIL", "XPASS", "SKIPPED")
 
 
-def write_backend_suite(suite: Path, backend: str, directory: Path) -> Path:
-    source = suite.read_text()
-    if IMPORTS["reasoning"] not in source:
-        raise SystemExit(f"{suite} does not contain the expected reasoning imports")
-    target = directory / f"test_query_{backend}.py"
-    target.write_text(source.replace(IMPORTS["reasoning"], IMPORTS[backend]))
+def write_sympy_suite(directory: Path) -> Path:
+    target = directory / "test_query_sympy.py"
+    target.write_text(SYMPY_BACKEND_SUITE)
     return target
 
 
@@ -79,7 +79,7 @@ def run_backend(backend: str, suite: Path,
     with tempfile.TemporaryDirectory(dir=suite.parent) as directory:
         directory = Path(directory)
         target = (suite if backend == "reasoning"
-                  else write_backend_suite(suite, backend, directory))
+                  else write_sympy_suite(directory))
         output, wall = run_pytest(target, directory / "report.xml", pytest_args)
         timings = parse_timings(directory / "report.xml")
     outcomes = parse_outcomes(output)
@@ -129,8 +129,11 @@ def main() -> None:
                         help="list each backend's failing tests")
     args = parser.parse_args()
 
+    if REASONING_BINDING not in args.suite.read_text():
+        raise SystemExit(f"{args.suite} does not bind satask from reasoning")
+
     backends = {name: run_backend(name, args.suite, args.pytest_args)
-                for name in IMPORTS}
+                for name in BACKENDS}
 
     for name, (outcomes, timings, wall) in backends.items():
         print(f"{name}: {len(outcomes)} tests: {summarize(outcomes)} "
