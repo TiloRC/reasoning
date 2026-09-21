@@ -46,6 +46,11 @@ def setup_cache() -> dict[str, tuple[dict[str, str], float]]:
     return runs
 
 
+# Two ~50 s pytest subprocesses per commit; asv kills setup_cache after the
+# 60 s default benchmark timeout otherwise.
+setup_cache.timeout = 900.0
+
+
 def setup(cache: dict[str, tuple[dict[str, str], float]]) -> None:
     global _RUNS
     _RUNS = cache
