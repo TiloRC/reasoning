@@ -1,0 +1,138 @@
+"""Compare this checkout's ``satask`` against saved baseline modules.
+
+Example::
+
+    .venv/bin/python benchmarks/compare_satask.py \
+        --baseline-satask /path/to/satask.py \
+        --baseline-handlers /path/to/sathandlers.py
+
+The saved files are loaded only in memory.  In particular, the baseline
+``satask`` sees the supplied baseline handler registry even when this checkout
+has already migrated its handlers to lightweight formulas.
+"""
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import random
+import sys
+from pathlib import Path
+
+from sympy import I, Q, pi, symbols
+from sympy.logic.boolalg import And, Equivalent, Implies, Not, Or, Xor
+from sympy.matrices.expressions import MatrixSymbol
+
+from reasoning.satask import satask as current_satask
+
+
+def _load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"could not load {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_baseline(satask_path: Path, handlers_path: Path):
+    """Load a baseline SAT entry point with its matching handler module."""
+    saved_handlers = sys.modules.get("reasoning.sathandlers")
+    baseline_handlers = _load_module("_satask_baseline_handlers", handlers_path)
+    sys.modules["reasoning.sathandlers"] = baseline_handlers
+    try:
+        return _load_module("_satask_baseline", satask_path).satask
+    finally:
+        if saved_handlers is None:
+            del sys.modules["reasoning.sathandlers"]
+        else:
+            sys.modules["reasoning.sathandlers"] = saved_handlers
+
+
+def evaluate(function, proposition, assumptions, early_return=False):
+    try:
+        return "value", function(proposition, assumptions, early_return=early_return)
+    except Exception as error:  # Baselines can differ in their exception type.
+        return "error", type(error).__name__
+
+
+def cases(seed: int, random_cases: int):
+    x, y, z = symbols("x y z")
+    subjects = [x, y, x + y, x*y, x*y*z, x**2, x**3, x**y,
+                abs(x), abs(x*y), 2, 3, I, pi]
+    atoms = [predicate(subject) for subject in subjects for predicate in (
+        Q.zero, Q.positive, Q.negative, Q.real, Q.integer, Q.rational,
+        Q.irrational, Q.even, Q.odd, Q.imaginary,
+    )]
+    atoms.extend([Q.nonnegative(x), Q.nonpositive(x), Q.nonzero(x),
+                  Q.prime(x*y), Q.prime(5)])
+    result = [
+        (Q.zero(x*y), Q.zero(x)),
+        (Q.zero(x) | Q.zero(y), Q.zero(x*y)),
+        (Q.real(x + y), Q.real(x) & Q.real(y)),
+        (Q.integer(x*y), Q.integer(x) & Q.integer(y)),
+        (Q.irrational(x*y), Q.irrational(x) & Q.rational(y) & ~Q.zero(y)),
+        (Q.nonnegative(x**2), Q.positive(x)),
+        (Q.zero(abs(x)), Q.zero(x)),
+        (Q.even(abs(x)), Q.even(x)),
+        (Q.prime(x*y), Q.prime(x) & Q.prime(y)),
+        (Q.imaginary(x*y), Q.real(x) & Q.real(y)),
+        (Q.zero(x**y), Q.zero(x) & Q.positive(y)),
+        (Q.positive(x), Q.real(x) & ~Q.positive(x)),
+    ]
+    rng = random.Random(seed)
+
+    def formula(depth):
+        if depth == 0:
+            return rng.choice(atoms)
+        left, right = formula(depth - 1), formula(depth - 1)
+        return (And(left, right), Or(left, right), Implies(left, right),
+                Equivalent(left, right), Xor(left, right), Not(left))[rng.randrange(6)]
+
+    result.extend((formula(rng.randrange(3)), formula(rng.randrange(3)))
+                  for _ in range(random_cases))
+    matrices = [
+        (Q.diagonal(MatrixSymbol("A", 2, 2)),
+         Q.lower_triangular(MatrixSymbol("A", 2, 2)) & Q.upper_triangular(MatrixSymbol("A", 2, 2))),
+        (Q.invertible(MatrixSymbol("A", 2, 2)),
+         Q.fullrank(MatrixSymbol("A", 2, 2)) & Q.square(MatrixSymbol("A", 2, 2))),
+    ]
+    return result + matrices
+
+
+def compare(baseline, seed: int, random_cases: int, early_return=False):
+    mismatches = []
+    all_cases = cases(seed, random_cases)
+    for index, (proposition, assumptions) in enumerate(all_cases):
+        old = evaluate(baseline, proposition, assumptions, early_return)
+        new = evaluate(current_satask, proposition, assumptions, early_return)
+        if old != new:
+            mismatches.append((index, proposition, assumptions, old, new))
+    return len(all_cases), mismatches
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--baseline-satask", required=True, type=Path)
+    parser.add_argument("--baseline-handlers", required=True, type=Path)
+    parser.add_argument("--seed", type=int, default=62819)
+    parser.add_argument("--random-cases", type=int, default=120)
+    parser.add_argument("--include-early-return", action="store_true")
+    args = parser.parse_args()
+
+    baseline = load_baseline(args.baseline_satask, args.baseline_handlers)
+    modes = [False] + ([True] if args.include_early_return else [])
+    failed = False
+    for early_return in modes:
+        count, mismatches = compare(baseline, args.seed, args.random_cases, early_return)
+        mode = "early_return" if early_return else "full SAT"
+        print(f"{mode}: {count} cases, {len(mismatches)} mismatches")
+        for index, proposition, assumptions, old, new in mismatches:
+            print(f"  case {index}: {proposition!s} under {assumptions!s}")
+            print(f"    baseline={old}; current={new}")
+        failed |= bool(mismatches)
+    raise SystemExit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main()

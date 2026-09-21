@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reasoning"
+version = "0.1.0"
+description = "Independent SAT reasoning with a SymPy integration"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+sympy = [
+    "sympy @ git+https://github.com/sympy/sympy.git@ddbb536d7e803e4c38d5d5808ad1217368b12655",
+]
+
+dev = ["pytest"]
+
+[tool.setuptools.package-data]
+reasoning = ["LICENSE.sympy"]
+
+[tool.setuptools.packages.find]
+include = ["reasoning*"]
+
+[tool.pytest.ini_options]
+testpaths = ["reasoning/tests"]
