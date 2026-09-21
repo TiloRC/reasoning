@@ -5,16 +5,17 @@ The facts themselves are lightweight formulas from :mod:`reasoning.clauses`.
 """
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Callable
 
 from sympy.core import Add, Mul, Pow, Number, NumberSymbol
-from sympy.core.numbers import ImaginaryUnit
+from sympy.core.numbers import ComplexInfinity, ImaginaryUnit
 from sympy.functions.elementary.complexes import Abs
 from sympy.logic.boolalg import And, Or
 from sympy.matrices.expressions import MatMul
 
 from reasoning.clauses import AND, EQUIVALENT, IMPLIES, NOT, OR
-from reasoning.predicates import Predicate, Q
+from reasoning.numberfacts import number_facts
+from reasoning.predicates import Q
 from reasoning.registry import ClassFactRegistry
 from reasoning.sympy_types import SymPyExpr
 
@@ -153,28 +154,8 @@ def _pow_facts(expr: SymPyExpr) -> list[object]:
     ]
 
 
-_old_assump_getters: dict[Predicate, Callable[[SymPyExpr], Any]] = {
-    Q.positive: lambda obj: obj.is_positive,
-    Q.zero: lambda obj: obj.is_zero,
-    Q.negative: lambda obj: obj.is_negative,
-    Q.rational: lambda obj: obj.is_rational,
-    Q.irrational: lambda obj: obj.is_irrational,
-    Q.even: lambda obj: obj.is_even,
-    Q.odd: lambda obj: obj.is_odd,
-    Q.imaginary: lambda obj: obj.is_imaginary,
-    Q.prime: lambda obj: obj.is_prime,
-    Q.composite: lambda obj: obj.is_composite,
-}
-
-
-@class_fact_registry.multiregister(Number, NumberSymbol, ImaginaryUnit)
-def _number_facts(expr: SymPyExpr) -> list[object]:
-    facts = []
-    for predicate, getter in _old_assump_getters.items():
-        value = getter(expr)
-        if value is not None:
-            facts.append(EQUIVALENT(predicate(expr), value))
-    return facts
+class_fact_registry.multiregister(
+    Number, NumberSymbol, ImaginaryUnit, ComplexInfinity)(number_facts)
 
 
 __all__ = [
