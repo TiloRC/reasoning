@@ -1,19 +1,21 @@
 from itertools import product
+from typing import Iterable
 
 import pytest
 
 from reasoning.clauses import (
     AND, EQUIVALENT, ITE, IMPLIES, NOT, OR, XOR,
-    ClauseDB, assert_formula, compile_formula, iter_atoms,
+    ClauseDB, Formula, assert_formula, compile_formula, iter_atoms,
 )
 
 
-def _satisfies(clauses, assignment):
+def _satisfies(clauses: Iterable[Iterable[int]],
+               assignment: dict[int, bool]) -> bool:
     return all(any(assignment[abs(literal)] == (literal > 0) for literal in clause)
                for clause in clauses)
 
 
-def _can_satisfy(db, fixed):
+def _can_satisfy(db: ClauseDB, fixed: dict[int, bool]) -> bool:
     variables = range(1, max([0, *db.symbols, *db.auxiliaries]) + 1)
     free = [variable for variable in variables if variable not in fixed]
     for values in product((False, True), repeat=len(free)):
@@ -24,10 +26,10 @@ def _can_satisfy(db, fixed):
     return False
 
 
-def _formula_value(formula, values):
+def _formula_value(formula: object, values: dict[object, bool]) -> object:
     if formula is True or formula is False:
         return formula
-    if not hasattr(formula, "op"):
+    if not isinstance(formula, Formula):
         return values[formula]
     args = [_formula_value(arg, values) for arg in formula.args]
     if formula.op == "and":
@@ -55,7 +57,7 @@ def _formula_value(formula, values):
     ITE("a", XOR("b", "c"), EQUIVALENT("b", "c")),
     AND(True, OR(False, "a"), IMPLIES("b", False)),
 ])
-def test_compiled_literal_is_equivalent_to_formula(formula):
+def test_compiled_literal_is_equivalent_to_formula(formula: object) -> None:
     db = ClauseDB()
     query = compile_formula(formula, db)
     atoms = tuple(dict.fromkeys(iter_atoms(formula)))
@@ -70,7 +72,7 @@ def test_compiled_literal_is_equivalent_to_formula(formula):
             assert not _can_satisfy(db, {**fixed, abs(query): expected != (query > 0)})
 
 
-def test_assert_formula_handles_constants_and_direct_clauses():
+def test_assert_formula_handles_constants_and_direct_clauses() -> None:
     db = ClauseDB()
     assert_formula(AND(True, OR("a", NOT("b")), IMPLIES("b", "c")), db)
     assert db.data == [{1, -2}, {-2, 3}]
@@ -90,7 +92,7 @@ def test_assert_formula_handles_constants_and_direct_clauses():
     assert true_db.data == []
 
 
-def test_clause_normalization_and_auxiliary_variables():
+def test_clause_normalization_and_auxiliary_variables() -> None:
     db = ClauseDB()
     a = db.literal("a")
     auxiliary = db.new_auxiliary_variable()
@@ -105,6 +107,6 @@ def test_clause_normalization_and_auxiliary_variables():
         db.add_clause((0,))
 
 
-def test_iter_atoms_excludes_constants_and_preserves_opaque_objects():
+def test_iter_atoms_excludes_constants_and_preserves_opaque_objects() -> None:
     atom = ("predicate", 1)
     assert list(iter_atoms(AND(True, atom, NOT(False)))) == [atom]

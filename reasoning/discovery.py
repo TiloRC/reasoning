@@ -1,14 +1,33 @@
 """Domain-independent relevance and fact discovery."""
-from .clauses import assert_formula, iter_atoms
+from typing import Any, Hashable, Iterable, Protocol
+
+from .clauses import ClauseDB, assert_formula, iter_atoms
 
 
-def relevant_subjects(proposition, assumptions, adapter):
+class Adapter(Protocol):
+    """Supplies expression knowledge to the discovery algorithms."""
+
+    def relevance_keys(self, atom: Any) -> Iterable[Hashable]: ...
+
+    def subjects(self, atom: Any) -> Iterable[object]: ...
+
+    def fact_subjects(self, atom: Any) -> Iterable[object]: ...
+
+    def facts_for(self, subject: Any) -> Iterable[object]: ...
+
+
+def relevant_subjects(proposition: object, assumptions: object,
+                      adapter: Adapter) -> set[object]:
     atoms = set(iter_atoms(proposition))
     candidates = set(iter_atoms(assumptions)) - atoms
-    keys = set().union(*(adapter.relevance_keys(atom) for atom in atoms))
-    indexed = [(atom, adapter.relevance_keys(atom)) for atom in candidates]
+    keys: set[Hashable] = set()
+    for atom in atoms:
+        keys.update(adapter.relevance_keys(atom))
+    indexed: list[tuple[object, set[Hashable]]] = [
+        (atom, set(adapter.relevance_keys(atom))) for atom in candidates
+    ]
     while True:
-        remaining = []
+        remaining: list[tuple[object, set[Hashable]]] = []
         changed = False
         for atom, atom_keys in indexed:
             if keys & atom_keys:
@@ -20,17 +39,21 @@ def relevant_subjects(proposition, assumptions, adapter):
         if not changed:
             break
         indexed = remaining
-    return set().union(*(adapter.subjects(atom) for atom in atoms))
+    subjects: set[object] = set()
+    for atom in atoms:
+        subjects.update(adapter.subjects(atom))
+    return subjects
 
 
-def discover_facts(subjects, db, adapter, iterations=None):
+def discover_facts(subjects: Iterable[object], db: ClauseDB, adapter: Adapter,
+                   iterations: int | None = None) -> set[object]:
     """Process each subject once, respecting breadth-first discovery rounds."""
-    visited = set()
+    visited: set[object] = set()
     frontier = set(subjects)
     rounds = 0
     while frontier and (iterations is None or rounds < iterations):
         visited.update(frontier)
-        following = set()
+        following: set[object] = set()
         for subject in frontier:
             for fact in adapter.facts_for(subject):
                 for atom in iter_atoms(fact):

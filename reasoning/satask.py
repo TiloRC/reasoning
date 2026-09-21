@@ -1,13 +1,15 @@
 """SymPy-facing entry points for the independent SAT reasoning core."""
 from __future__ import annotations
 
+from typing import Iterable
+
 from .clauses import ClauseDB, assert_formula, compile_formula, iter_atoms
 from .discovery import discover_facts, relevant_subjects
 from .engine import ReasoningEngine
 from .sympy_adapter import SympyAdapter, to_formula
 
 
-def _iteration_limit(iterations):
+def _iteration_limit(iterations: object) -> int | None:
     # Keep accepting the former oo default at the public boundary.
     from sympy import oo
     if iterations is None or iterations == oo:
@@ -17,8 +19,9 @@ def _iteration_limit(iterations):
     return iterations
 
 
-def satask(proposition, assumptions=True, use_known_facts=True, iterations=None,
-           early_return=False):
+def satask(proposition: object, assumptions: object = True,
+           use_known_facts: bool = True, iterations: object = None,
+           early_return: bool = False) -> bool | None:
     """Return True, False, or None according to the supplied assumptions.
 
     Expression facts are discovered breadth-first, processing each expression
@@ -37,24 +40,29 @@ def satask(proposition, assumptions=True, use_known_facts=True, iterations=None,
     return ReasoningEngine(db).ask(query, early_return=early_return)
 
 
-def extract_predargs(proposition, assumptions=None):
+def extract_predargs(proposition: object,
+                     assumptions: object = None) -> set[object]:
     """Find subjects connected to the proposition through assumption symbols."""
     return relevant_subjects(to_formula(proposition),
                              to_formula(True if assumptions is None else assumptions),
                              SympyAdapter())
 
 
-def find_symbols(proposition):
+def find_symbols(proposition: object) -> set[object]:
     adapter = SympyAdapter()
-    return set().union(*(adapter.relevance_keys(atom)
-                         for atom in iter_atoms(to_formula(proposition))))
+    symbols: set[object] = set()
+    for atom in iter_atoms(to_formula(proposition)):
+        symbols.update(adapter.relevance_keys(atom))
+    return symbols
 
 
-def get_relevant_clsfacts(exprs, relevant_facts=None):
+def get_relevant_clsfacts(exprs: Iterable[object],
+                          relevant_facts: ClauseDB | None = None,
+                          ) -> tuple[set[object], ClauseDB]:
     """Encode one discovery round; return new subjects and a ClauseDB."""
     adapter = SympyAdapter()
     db = ClauseDB() if relevant_facts is None else relevant_facts
-    following = set()
+    following: set[object] = set()
     for expr in exprs:
         for fact in adapter.facts_for(expr):
             for atom in iter_atoms(fact):
@@ -63,8 +71,9 @@ def get_relevant_clsfacts(exprs, relevant_facts=None):
     return following - set(exprs), db
 
 
-def get_all_relevant_facts(proposition, assumptions, use_known_facts=True,
-                           iterations=None):
+def get_all_relevant_facts(proposition: object, assumptions: object,
+                           use_known_facts: bool = True,
+                           iterations: object = None) -> ClauseDB:
     """Build integer clauses for expression and known predicate facts."""
     adapter = SympyAdapter()
     subjects = relevant_subjects(to_formula(proposition), to_formula(assumptions), adapter)

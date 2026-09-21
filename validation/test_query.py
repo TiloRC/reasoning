@@ -14,6 +14,7 @@ import json
 import re
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
+from typing import cast
 
 _PIN = re.compile(r"sympy @ git\+\S+?@([0-9a-f]{40})")
 
@@ -31,7 +32,8 @@ def _installed_commit() -> str | None:
         return None
     if direct_url is None:
         return None
-    return json.loads(direct_url).get("vcs_info", {}).get("commit_id")
+    return cast("str | None",
+                json.loads(direct_url).get("vcs_info", {}).get("commit_id"))
 
 
 def _check_pinned_sympy() -> None:

@@ -14,7 +14,7 @@ sympy = [
     "sympy @ git+https://github.com/sympy/sympy.git@ddbb536d7e803e4c38d5d5808ad1217368b12655",
 ]
 
-dev = ["pytest"]
+dev = ["pytest", "mypy"]
 
 [tool.setuptools.package-data]
 reasoning = ["LICENSE.sympy"]
@@ -24,3 +24,12 @@ include = ["reasoning*"]
 
 [tool.pytest.ini_options]
 testpaths = ["reasoning/tests", "validation"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["reasoning", "benchmarks", "validation", "conftest.py"]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["sympy", "sympy.*"]
+follow_imports = "skip"

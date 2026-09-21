@@ -7,6 +7,10 @@ other fact objects.
 from __future__ import annotations
 
 from collections import defaultdict
+from typing import Any, Callable, Iterable
+
+SingleHandler = Callable[[Any], object]
+MultiHandler = Callable[[Any], Iterable[object]]
 
 
 class ClassFactRegistry:
@@ -17,24 +21,28 @@ class ClassFactRegistry:
     to subclasses too.
     """
 
-    def __init__(self):
-        self.singlefacts = defaultdict(frozenset)
-        self.multifacts = defaultdict(frozenset)
+    def __init__(self) -> None:
+        self.singlefacts: defaultdict[type[Any], frozenset[SingleHandler]] = (
+            defaultdict(frozenset))
+        self.multifacts: defaultdict[type[Any], frozenset[MultiHandler]] = (
+            defaultdict(frozenset))
 
-    def register(self, cls):
-        def decorator(func):
+    def register(self, cls: type[Any]) -> Callable[[SingleHandler], SingleHandler]:
+        def decorator(func: SingleHandler) -> SingleHandler:
             self.singlefacts[cls] |= {func}
             return func
         return decorator
 
-    def multiregister(self, *classes):
-        def decorator(func):
+    def multiregister(self, *classes: type[Any]) -> Callable[[MultiHandler], MultiHandler]:
+        def decorator(func: MultiHandler) -> MultiHandler:
             for cls in classes:
                 self.multifacts[cls] |= {func}
             return func
         return decorator
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: type[Any]) -> tuple[
+        frozenset[SingleHandler], frozenset[MultiHandler],
+    ]:
         singles = self.singlefacts[key]
         multiples = self.multifacts[key]
         for registered, handlers in self.singlefacts.items():
@@ -45,9 +53,9 @@ class ClassFactRegistry:
                 multiples |= handlers
         return singles, multiples
 
-    def __call__(self, expr):
+    def __call__(self, expr: Any) -> set[object]:
         singles, multiples = self[type(expr)]
-        facts = {handler(expr) for handler in singles}
+        facts: set[object] = {handler(expr) for handler in singles}
         for handler in multiples:
             facts.update(handler(expr))
         return facts

@@ -18,7 +18,7 @@ from sympy.testing.pytest import raises, XFAIL
 x, y, z = symbols('x y z')
 
 
-def test_satask():
+def test_satask() -> None:
     # No relevant facts
     assert satask(Q.real(x), Q.real(x)) is True
     assert satask(Q.real(x), ~Q.real(x)) is False
@@ -38,7 +38,7 @@ def test_satask():
     assert satask(Q.zero(x*y), Q.zero(x))
 
 
-def test_zero():
+def test_zero() -> None:
     """
     Everything in this test doesn't work with the ask handlers, and most
     things would be very difficult or impossible to make work under that
@@ -61,7 +61,7 @@ def test_zero():
     assert satask(Q.zero(x), Q.nonnegative(x) & Q.nonpositive(x)) is True
 
 
-def test_zero_positive():
+def test_zero_positive() -> None:
     assert satask(Q.zero(x + y), Q.positive(x) & Q.positive(y)) is False
     assert satask(Q.positive(x) & Q.positive(y), Q.zero(x + y)) is False
     assert satask(Q.nonzero(x + y), Q.positive(x) & Q.positive(y)) is True
@@ -74,7 +74,7 @@ def test_zero_positive():
     assert satask(Q.positive(pi*x*y - 5), Q.positive(x) & Q.positive(y)) is None
 
 
-def test_zero_pow():
+def test_zero_pow() -> None:
     assert satask(Q.zero(x**y), Q.zero(x) & Q.positive(y)) is True
     assert satask(Q.zero(x**y), Q.nonzero(x) & Q.zero(y)) is False
 
@@ -83,9 +83,9 @@ def test_zero_pow():
     assert satask(Q.zero(x**y), Q.zero(x)) is None
 
 
-@XFAIL
+@XFAIL  # type: ignore[untyped-decorator]
 # Requires correct Q.square calculation first
-def test_invertible():
+def test_invertible() -> None:
     A = MatrixSymbol('A', 5, 5)
     B = MatrixSymbol('B', 5, 5)
     assert satask(Q.invertible(A*B), Q.invertible(A) & Q.invertible(B)) is True
@@ -93,7 +93,7 @@ def test_invertible():
     assert satask(Q.invertible(A) & Q.invertible(B), Q.invertible(A*B)) is True
 
 
-def test_prime():
+def test_prime() -> None:
     assert satask(Q.prime(5)) is True
     assert satask(Q.prime(6)) is False
     assert satask(Q.prime(-5)) is False
@@ -102,7 +102,7 @@ def test_prime():
     assert satask(Q.prime(x*y), Q.prime(x) & Q.prime(y)) is False
 
 
-def test_old_assump():
+def test_old_assump() -> None:
     assert satask(Q.positive(1)) is True
     assert satask(Q.positive(-1)) is False
     assert satask(Q.positive(0)) is False
@@ -140,7 +140,7 @@ def test_old_assump():
     assert satask(Q.nonnegative(pi)) is True
 
 
-def test_rational_irrational():
+def test_rational_irrational() -> None:
     assert satask(Q.irrational(2)) is False
     assert satask(Q.rational(2)) is True
     assert satask(Q.irrational(pi)) is True
@@ -175,7 +175,7 @@ def test_rational_irrational():
         Q.rational(z)) is True
 
 
-def test_even_satask():
+def test_even_satask() -> None:
     assert satask(Q.even(2)) is True
     assert satask(Q.even(3)) is False
 
@@ -192,7 +192,7 @@ def test_even_satask():
     assert satask(Q.even(x), Q.even(abs(x))) is None # x could be complex
 
 
-def test_odd_satask():
+def test_odd_satask() -> None:
     assert satask(Q.odd(2)) is False
     assert satask(Q.odd(3)) is True
 
@@ -209,7 +209,7 @@ def test_odd_satask():
     assert satask(Q.odd(x), Q.odd(abs(x))) is None # x could be complex
 
 
-def test_integer():
+def test_integer() -> None:
     assert satask(Q.integer(1)) is True
     assert satask(Q.integer(S.Half)) is False
 
@@ -244,7 +244,7 @@ def test_integer():
         ~Q.zero(x)) is False
 
 
-def test_abs():
+def test_abs() -> None:
     assert satask(Q.nonnegative(abs(x))) is True
     assert satask(Q.positive(abs(x)), ~Q.zero(x)) is True
     assert satask(Q.zero(x), ~Q.zero(abs(x))) is False
@@ -253,7 +253,7 @@ def test_abs():
     assert satask(Q.zero(abs(x)), Q.zero(x)) is True
 
 
-def test_imaginary():
+def test_imaginary() -> None:
     assert satask(Q.imaginary(2*I)) is True
     assert satask(Q.imaginary(x*y), Q.imaginary(x)) is None
     assert satask(Q.imaginary(x*y), Q.imaginary(x) & Q.real(y)) is None # y could be 0
@@ -263,7 +263,7 @@ def test_imaginary():
     assert satask(Q.imaginary(x + y), Q.real(x) & Q.real(y)) is False
 
 
-def test_real():
+def test_real() -> None:
     assert satask(Q.real(x*y), Q.real(x) & Q.real(y)) is True
     assert satask(Q.real(x + y), Q.real(x) & Q.real(y)) is True
     assert satask(Q.real(x*y*z), Q.real(x) & Q.real(y) & Q.real(z)) is True
@@ -273,7 +273,7 @@ def test_real():
     assert satask(Q.real(x + y + z), Q.real(x) & Q.real(y)) is None
 
 
-def test_pos_neg():
+def test_pos_neg() -> None:
     assert satask(~Q.positive(x), Q.negative(x)) is True
     assert satask(~Q.negative(x), Q.positive(x)) is True
     assert satask(Q.positive(x + y), Q.positive(x) & Q.positive(y)) is True
@@ -287,7 +287,7 @@ def test_pos_neg():
     assert satask(Q.positive(x**y), Q.zero(x) & Q.positive(y)) is False
 
 
-def test_pow_pos_neg():
+def test_pow_pos_neg() -> None:
     assert satask(Q.nonnegative(x**2), Q.positive(x)) is True
     assert satask(Q.nonpositive(x**2), Q.positive(x)) is False
     assert satask(Q.positive(x**2), Q.positive(x)) is True
@@ -347,7 +347,7 @@ def test_pow_pos_neg():
     # isn't implemented yet.
 
 
-def test_prime_composite():
+def test_prime_composite() -> None:
     assert satask(Q.prime(x), Q.composite(x)) is False
     assert satask(Q.composite(x), Q.prime(x)) is False
     assert satask(Q.composite(x), ~Q.prime(x)) is None
@@ -360,7 +360,7 @@ def test_prime_composite():
     assert satask(Q.composite(1)) is False
 
 
-def test_extract_predargs():
+def test_extract_predargs() -> None:
     props = CNF.from_prop(Q.zero(Abs(x*y)) & Q.zero(x*y))
     assump = CNF.from_prop(Q.zero(x))
     context = CNF.from_prop(Q.zero(y))
@@ -374,7 +374,7 @@ def test_extract_predargs():
     assert extract_predargs(props, assump) == {x, y, z}
 
 
-def test_get_relevant_clsfacts():
+def test_get_relevant_clsfacts() -> None:
     exprs = {Abs(x*y)}
     exprs, facts = get_relevant_clsfacts(exprs)
     assert exprs == {x*y}
@@ -388,7 +388,7 @@ def test_get_relevant_clsfacts():
          frozenset({Literal(Q.zero(Abs(x*y)), False), Literal(Q.zero(x*y), True)}),
          frozenset({Literal(Q.zero(Abs(x*y)), True), Literal(Q.zero(x*y), False)})}
 
-def test_issue_27467():
+def test_issue_27467() -> None:
     s = sum(Dummy() for _ in range(10))
     from reasoning.clauses import ClauseDB, assert_formula
     for fact in class_fact_registry(s):
@@ -396,7 +396,7 @@ def test_issue_27467():
         assert_formula(fact, db)
         assert len(db.data) < 1000
 
-def test_issue_29433():
+def test_issue_29433() -> None:
     assert satask(Q.infinite(x+y*pi), Q.zero(y)) is None
     assert satask(Q.rational(x + y*E), Q.zero(y)) is None
     assert satask(Q.integer(x + y*pi), Q.zero(y)) is None
@@ -406,7 +406,7 @@ def test_issue_29433():
 
 
 # https://github.com/sympy/sympy/pull/30175
-def test_composite_proposition():
+def test_composite_proposition() -> None:
     assert satask(Q.negative(x) & Q.integer(x),
         assumptions=Q.real(x) >> Q.positive(x)) is False
     assert satask(Q.real(x) | Q.integer(x), Q.real(x) | Q.integer(x)) is True
@@ -415,7 +415,7 @@ def test_composite_proposition():
 
 
 # https://github.com/sympy/sympy/pull/30175
-def test_matrix_predicates():
+def test_matrix_predicates() -> None:
     X = MatrixSymbol('X', 2, 2)
     assert satask(Q.diagonal(X),
         Q.lower_triangular(X) & Q.upper_triangular(X)) is True
@@ -423,7 +423,7 @@ def test_matrix_predicates():
     assert satask(Q.singular(X), ~Q.invertible(X)) is True
 
 
-def test_satask_early_return():
+def test_satask_early_return() -> None:
     # Propagation alone cannot see that these assumptions contradict, so the
     # search has to run before an answer can be trusted.
     ass = (Q.real(x) & (Q.positive(x) | Q.negative(x))
@@ -442,7 +442,7 @@ def test_satask_early_return():
     assert satask(S.false, Q.real(x), early_return=True) is False
 
 
-def test_python_boolean_constants_and_zero_iterations():
+def test_python_boolean_constants_and_zero_iterations() -> None:
     assert satask(True) is True
     assert satask(False) is False
     raises(ValueError, lambda: satask(True, False))
@@ -453,5 +453,5 @@ def test_python_boolean_constants_and_zero_iterations():
     raises(ValueError, lambda: satask(Q.real(x), iterations=-1))
 
 
-def test_disconnected_assumptions_still_checked():
+def test_disconnected_assumptions_still_checked() -> None:
     raises(ValueError, lambda: satask(Q.real(x), Q.positive(y) & ~Q.positive(y)))

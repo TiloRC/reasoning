@@ -5,14 +5,14 @@ from reasoning.engine import ReasoningEngine
 from reasoning.solver import IpasirStatus, SATSolver
 
 
-def test_engine_answers_both_polarities_and_unknown():
+def test_engine_answers_both_polarities_and_unknown() -> None:
     engine = ReasoningEngine([{1, -2}, {2}])
     assert engine.ask(1) is True
     assert ReasoningEngine([{1, -2}, {2}]).ask(-1) is False
     assert ReasoningEngine([{1, 2}]).ask(1) is None
 
 
-def test_engine_constants_and_propagation():
+def test_engine_constants_and_propagation() -> None:
     engine = ReasoningEngine([{1}, {-1, 2}])
     assert engine.ask(True) is True
     assert ReasoningEngine([{1}, {-1, 2}]).ask(False) is False
@@ -20,14 +20,14 @@ def test_engine_constants_and_propagation():
     assert engine.ask(2, early_return=True) is True
 
 
-def test_engine_reuses_its_base_model_for_repeated_queries():
+def test_engine_reuses_its_base_model_for_repeated_queries() -> None:
     engine = ReasoningEngine([{1}])
     assert [engine.ask(query) for query in (1, -1, 2, -2, True, False, 1)] == [
         True, False, None, None, True, False, True,
     ]
 
 
-def test_engine_rejects_inconsistent_facts():
+def test_engine_rejects_inconsistent_facts() -> None:
     try:
         ReasoningEngine([{1}, {-1}]).ask(1)
     except ValueError as error:
@@ -36,7 +36,7 @@ def test_engine_rejects_inconsistent_facts():
         raise AssertionError("inconsistent facts were accepted")
 
 
-def test_engine_rejects_root_propagation_conflicts_immediately():
+def test_engine_rejects_root_propagation_conflicts_immediately() -> None:
     try:
         ReasoningEngine([{1}, {-1}])
     except ValueError as error:
@@ -45,7 +45,7 @@ def test_engine_rejects_root_propagation_conflicts_immediately():
         raise AssertionError("root conflict was accepted")
 
 
-def test_early_return_can_answer_propagation_before_consistency_check():
+def test_early_return_can_answer_propagation_before_consistency_check() -> None:
     engine = ReasoningEngine([{1}, {2, 3}, {-2, 3}, {2, -3}, {-2, -3}])
     assert engine.ask(1, early_return=True) is True
     try:
@@ -56,7 +56,7 @@ def test_early_return_can_answer_propagation_before_consistency_check():
         raise AssertionError("inconsistent facts were accepted")
 
 
-def test_solver_assumptions_are_temporary():
+def test_solver_assumptions_are_temporary() -> None:
     solver = SATSolver([{1, 2}, {-1, -2}], {1, 2})
     solver.assume(1)
     assert solver.solve() is IpasirStatus.SATISFIABLE
@@ -64,11 +64,11 @@ def test_solver_assumptions_are_temporary():
     assert solver.solve() is IpasirStatus.SATISFIABLE
 
 
-def test_unknown_unallocated_literal_does_not_become_an_assumption():
+def test_unknown_unallocated_literal_does_not_become_an_assumption() -> None:
     assert ReasoningEngine([{1, 2}]).ask(99) is None
 
 
-def test_zero_is_not_a_clause_or_query_literal():
+def test_zero_is_not_a_clause_or_query_literal() -> None:
     try:
         ReasoningEngine([{0}])
     except ValueError as error:
@@ -77,7 +77,7 @@ def test_zero_is_not_a_clause_or_query_literal():
         raise AssertionError("zero clause literal was accepted")
 
 
-def test_repeated_queries_and_random_cnf_match_brute_force():
+def test_repeated_queries_and_random_cnf_match_brute_force() -> None:
     randomizer = random.Random(729)
     for _ in range(100):
         clauses = [

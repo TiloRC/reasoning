@@ -8,6 +8,7 @@ import argparse
 import json
 import statistics
 from time import perf_counter
+from typing import Any
 
 from sympy import MatrixSymbol, Q, symbols
 
@@ -17,7 +18,7 @@ from reasoning.satask import get_all_relevant_facts
 from reasoning.sympy_adapter import to_formula
 
 
-def cases():
+def cases() -> dict[str, tuple[Any, Any]]:
     x, y = symbols('x y')
     xs = symbols('x:10')
     matrix = MatrixSymbol('A', 2, 2)
@@ -30,7 +31,7 @@ def cases():
     }
 
 
-def measure(proposition, assumptions):
+def measure(proposition: Any, assumptions: Any) -> dict[str, Any]:
     start = perf_counter()
     prop, assump = to_formula(proposition), to_formula(assumptions)
     converted = perf_counter()
@@ -39,6 +40,7 @@ def measure(proposition, assumptions):
     assert_formula(assump, db)
     query = compile_formula(prop, db)
     encoded = perf_counter()
+    result: bool | str | None
     try:
         result = ReasoningEngine(db).ask(query)
     except ValueError:
@@ -54,11 +56,11 @@ def measure(proposition, assumptions):
     }
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('--repeat', type=int, default=15)
     args = parser.parse_args()
-    output = {}
+    output: dict[str, dict[str, Any]] = {}
     for name, inputs in cases().items():
         measure(*inputs)
         runs = [measure(*inputs) for _ in range(args.repeat)]

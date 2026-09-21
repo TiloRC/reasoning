@@ -1,17 +1,21 @@
 """Integer-CNF reasoning API independent of SymPy."""
 from __future__ import annotations
 
+from typing import AbstractSet, Iterable, cast
+
 from .solver import IpasirStatus, SATSolver
 
 
 class ReasoningEngine:
     """Answer whether an integer literal follows from a clause database."""
 
-    def __init__(self, factbase) -> None:
+    def __init__(self, factbase: object) -> None:
         self._factbase = factbase
-        clauses = getattr(factbase, "data", factbase)
-        self._clauses = [tuple(clause) for clause in clauses]
-        variables = getattr(factbase, "variables", None)
+        clauses = cast("Iterable[Iterable[int]]",
+                       getattr(factbase, "data", factbase))
+        self._clauses: list[tuple[int, ...]] = [tuple(clause) for clause in clauses]
+        variables = cast("AbstractSet[int] | None",
+                         getattr(factbase, "variables", None))
         if any(not clause for clause in self._clauses):
             raise ValueError("Inconsistent assumptions")
         if any(literal == 0 for clause in self._clauses for literal in clause):

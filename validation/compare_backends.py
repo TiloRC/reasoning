@@ -70,14 +70,19 @@ def parse_outcomes(output: str) -> dict[str, str]:
 def parse_timings(report: Path) -> dict[str, float]:
     if not report.exists():
         return {}
-    return {case.get("name"): float(case.get("time", 0.0))
-            for case in ET.parse(report).getroot().iter("testcase")}
+    timings = {}
+    for case in ET.parse(report).getroot().iter("testcase"):
+        name = case.get("name")
+        time = case.get("time")
+        if name is not None:
+            timings[name] = float(time) if time is not None else 0.0
+    return timings
 
 
 def run_backend(backend: str, suite: Path,
                 pytest_args: list[str]) -> tuple[dict[str, str], dict[str, float], float]:
-    with tempfile.TemporaryDirectory(dir=suite.parent) as directory:
-        directory = Path(directory)
+    with tempfile.TemporaryDirectory(dir=suite.parent) as directory_name:
+        directory = Path(directory_name)
         target = (suite if backend == "reasoning"
                   else write_sympy_suite(directory))
         output, wall = run_pytest(target, directory / "report.xml", pytest_args)

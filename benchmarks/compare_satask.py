@@ -17,6 +17,7 @@ import importlib.util
 import random
 import sys
 from pathlib import Path
+from typing import Any, Callable, cast
 
 from sympy import I, Q, pi, symbols
 from sympy.logic.boolalg import And, Equivalent, Implies, Not, Or, Xor
@@ -25,7 +26,7 @@ from sympy.matrices.expressions import MatrixSymbol
 from reasoning.satask import satask as current_satask
 
 
-def _load_module(name: str, path: Path):
+def _load_module(name: str, path: Path) -> Any:
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
         raise ValueError(f"could not load {path}")
@@ -35,13 +36,14 @@ def _load_module(name: str, path: Path):
     return module
 
 
-def load_baseline(satask_path: Path, handlers_path: Path):
+def load_baseline(satask_path: Path, handlers_path: Path) -> Callable[..., Any]:
     """Load a baseline SAT entry point with its matching handler module."""
     saved_handlers = sys.modules.get("reasoning.sathandlers")
     baseline_handlers = _load_module("_satask_baseline_handlers", handlers_path)
     sys.modules["reasoning.sathandlers"] = baseline_handlers
     try:
-        return _load_module("_satask_baseline", satask_path).satask
+        return cast("Callable[..., Any]",
+                    _load_module("_satask_baseline", satask_path).satask)
     finally:
         if saved_handlers is None:
             del sys.modules["reasoning.sathandlers"]
@@ -49,14 +51,15 @@ def load_baseline(satask_path: Path, handlers_path: Path):
             sys.modules["reasoning.sathandlers"] = saved_handlers
 
 
-def evaluate(function, proposition, assumptions, early_return=False):
+def evaluate(function: Callable[..., Any], proposition: Any, assumptions: Any,
+             early_return: bool = False) -> tuple[str, Any]:
     try:
         return "value", function(proposition, assumptions, early_return=early_return)
     except Exception as error:  # Baselines can differ in their exception type.
         return "error", type(error).__name__
 
 
-def cases(seed: int, random_cases: int):
+def cases(seed: int, random_cases: int) -> list[tuple[Any, Any]]:
     x, y, z = symbols("x y z")
     subjects = [x, y, x + y, x*y, x*y*z, x**2, x**3, x**y,
                 abs(x), abs(x*y), 2, 3, I, pi]
@@ -82,7 +85,7 @@ def cases(seed: int, random_cases: int):
     ]
     rng = random.Random(seed)
 
-    def formula(depth):
+    def formula(depth: int) -> Any:
         if depth == 0:
             return rng.choice(atoms)
         left, right = formula(depth - 1), formula(depth - 1)
@@ -100,7 +103,10 @@ def cases(seed: int, random_cases: int):
     return result + matrices
 
 
-def compare(baseline, seed: int, random_cases: int, early_return=False):
+def compare(baseline: Callable[..., Any], seed: int, random_cases: int,
+            early_return: bool = False) -> tuple[
+                int, list[tuple[int, Any, Any, tuple[str, Any], tuple[str, Any]]],
+            ]:
     mismatches = []
     all_cases = cases(seed, random_cases)
     for index, (proposition, assumptions) in enumerate(all_cases):
@@ -111,7 +117,7 @@ def compare(baseline, seed: int, random_cases: int, early_return=False):
     return len(all_cases), mismatches
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline-satask", required=True, type=Path)
     parser.add_argument("--baseline-handlers", required=True, type=Path)

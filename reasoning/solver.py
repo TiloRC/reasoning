@@ -18,6 +18,7 @@ from collections import defaultdict
 from copy import deepcopy
 from enum import Enum
 from heapq import heappush, heappop
+from typing import AbstractSet, Callable, Iterable, Iterator, cast
 
 class IpasirStatus(Enum):
     # Status codes used by the IPASIR style interface of SATSolver. The values are
@@ -32,8 +33,38 @@ class SATSolver:
      normal form.
     """
 
-    def __init__(self, clauses, variables=None, var_settings=(),
-                heuristic='vsids', clause_learning='none', INTERVAL=500):
+    var_settings: set[int]
+    heuristic: str
+    is_unsatisfied: bool
+    _unit_prop_queue: list[int]
+    update_functions: list[Callable[[], None]]
+    INTERVAL: int
+    clauses: list[list[int]]
+    sentinels: defaultdict[int, set[int]]
+    occurrence_count: defaultdict[int, int]
+    variable_set: list[bool]
+    levels: list[Level]
+    num_decisions: int
+    num_learned_clauses: int
+    original_num_clauses: int
+    _status: IpasirStatus
+    _models: Iterator[dict[int, bool]] | None
+    _clause_buffer: list[int]
+    _assumptions: list[int]
+    lit_heap: list[tuple[float, int]]
+    lit_scores: dict[int, float]
+    heur_calculate: Callable[[], int]
+    heur_lit_assigned: Callable[[int], None]
+    heur_lit_unset: Callable[[int], None]
+    heur_clause_added: Callable[[Iterable[int]], None]
+    add_learned_clause: Callable[[list[int]], None]
+    compute_conflict: Callable[[], list[int]]
+
+    def __init__(self, clauses: Iterable[Iterable[int]],
+                variables: AbstractSet[int] | None = None,
+                var_settings: Iterable[int] = (),
+                heuristic: str = 'vsids', clause_learning: str = 'none',
+                INTERVAL: int = 500) -> None:
 
         clauses = list(clauses)
         if variables is None:
@@ -72,8 +103,8 @@ class SATSolver:
             self.compute_conflict = self._simple_compute_conflict
             self.update_functions.append(self._simple_clean_clauses)
         elif 'none' == clause_learning:
-            self.add_learned_clause = lambda x: None
-            self.compute_conflict = lambda: None
+            self.add_learned_clause = self._ignore_learned_clause
+            self.compute_conflict = self._no_conflict
         else:
             raise NotImplementedError
 
@@ -92,13 +123,13 @@ class SATSolver:
         self._clause_buffer = []
         self._assumptions = []
 
-    def _initialize_variables(self, variables):
+    def _initialize_variables(self, variables: AbstractSet[int]) -> None:
         """Set up the variable data structures needed."""
         self.sentinels = defaultdict(set)
         self.occurrence_count = defaultdict(int)
         self.variable_set = [False] * (len(variables) + 1)
 
-    def _initialize_clauses(self, clauses):
+    def _initialize_clauses(self, clauses: Iterable[Iterable[int]]) -> None:
         """Set up the clause data structures needed.
 
         For each clause, the following changes are made:
@@ -121,7 +152,7 @@ class SATSolver:
             for lit in clause:
                 self.occurrence_count[lit] += 1
 
-    def _find_model(self):
+    def _find_model(self) -> Iterator[dict[int, bool]]:
         """
         Main DPLL loop. Returns a generator of models.
 
@@ -267,7 +298,7 @@ class SATSolver:
 
     # https://github.com/arminbiere/cadical/blob/master/src/cadical.hpp
     """
-    def propagate(self):
+    def propagate(self) -> IpasirStatus:
         """Propagate the unit clauses at the root level, deciding nothing.
 
         Returns ``UNSATISFIABLE`` on a conflict, ``SATISFIABLE`` if it leaves
@@ -299,7 +330,7 @@ class SATSolver:
 
         return self._status
 
-    def fixed(self, lit):
+    def fixed(self, lit: int) -> int:
         """Return 1 if *lit* is implied by the clauses, -1 if ``-lit`` is
         implied, and 0 if neither is known yet.
 
@@ -316,7 +347,7 @@ class SATSolver:
             return -1
         return 0
 
-    def solve(self):
+    def solve(self) -> IpasirStatus:
         """Search for a model, reusing the work ``propagate()`` already did,
         and return ``SATISFIABLE`` or ``UNSATISFIABLE``.
 
@@ -344,7 +375,7 @@ class SATSolver:
 
         return self._status
 
-    def val(self, lit):
+    def val(self, lit: int) -> int:
         """Return *lit* if it is true in the model found by ``solve()``,
         ``-lit`` if it is false there, and 0 if the model does not assign it.
 
@@ -361,7 +392,7 @@ class SATSolver:
             return -lit
         return 0
 
-    def assume(self, lit):
+    def assume(self, lit: int) -> None:
         """Constrain the next call to ``solve()`` with *lit*, which it drops
         again afterwards, letting one solver answer several questions.
 
@@ -393,7 +424,7 @@ class SATSolver:
 
         self._assumptions.append(lit)
 
-    def add(self, lit):
+    def add(self, lit: int) -> None:
         """Add *lit* to the clause being built, or add that clause to the
         solver when *lit* is 0.
 
@@ -460,24 +491,27 @@ class SATSolver:
                 self.is_unsatisfied = True
                 self._status = IpasirStatus.UNSATISFIABLE
 
-    def clause(self, *lits):
+    def clause(self, *lits: int | Iterable[int]) -> None:
         """Add the clause made up of *lits*, given one by one or as a single
         iterable, which covers the ``clause`` overloads of CaDiCaL.
 
         Without any literal it adds the empty clause, which is false.
 
         """
+        literals: Iterable[int]
         if len(lits) == 1 and not isinstance(lits[0], int):
-            lits = lits[0]
+            literals = lits[0]
+        else:
+            literals = cast("tuple[int, ...]", lits)
 
-        for lit in lits:
+        for lit in literals:
             self.add(lit)
 
         # Zero is never a literal, which is why IPASIR uses it to mark the
         # end of a clause rather than passing a length around.
         self.add(0)
 
-    def copy(self):
+    def copy(self) -> SATSolver:
         """Return an independent solver with the same clauses and state, so
         that adding clauses to it or searching with it changes nothing here.
 
@@ -502,7 +536,7 @@ class SATSolver:
         self._models = None
 
         try:
-            other = deepcopy(self)
+            other: SATSolver = deepcopy(self)
         finally:
             self._models = models
 
@@ -512,7 +546,7 @@ class SATSolver:
     #    Helper Methods    #
     ########################
     @property
-    def _current_level(self):
+    def _current_level(self) -> Level:
         """The current decision level data structure
 
         Examples
@@ -532,7 +566,7 @@ class SATSolver:
         """
         return self.levels[-1]
 
-    def _clause_sat(self, cls):
+    def _clause_sat(self, cls: int) -> bool:
         """Check if a clause is satisfied by the current variable setting.
 
         Examples
@@ -555,7 +589,7 @@ class SATSolver:
                 return True
         return False
 
-    def _is_sentinel(self, lit, cls):
+    def _is_sentinel(self, lit: int, cls: int) -> bool:
         """Check if a literal is a sentinel of a given clause.
 
         Examples
@@ -574,7 +608,7 @@ class SATSolver:
         """
         return cls in self.sentinels[lit]
 
-    def _assign_literal(self, lit):
+    def _assign_literal(self, lit: int) -> list[int] | None:
         """Make a literal assignment.
 
         The literal assignment must be recorded as part of the current
@@ -631,13 +665,13 @@ class SATSolver:
 
         return None
 
-    def _create_level(self, lit, flipped=False):
+    def _create_level(self, lit: int, flipped: bool = False) -> None:
         """
         Start a new decision level for ``lit``.
         """
         self.levels.append(Level(lit, flipped=flipped))
 
-    def _undo(self):
+    def _undo(self) -> None:
         """
         _undo the changes of the most recent decision level.
 
@@ -678,7 +712,7 @@ class SATSolver:
       theory, and return True if any simplification occurred and False
       otherwise.
     """
-    def _simplify(self):
+    def _simplify(self) -> None:
         """Iterate over the various forms of propagation to simplify the theory.
 
         Examples
@@ -707,7 +741,7 @@ class SATSolver:
             changed |= self._unit_prop()
             changed |= self._pure_literal()
 
-    def _unit_prop(self):
+    def _unit_prop(self) -> bool:
         """Perform unit propagation on the current theory."""
         result = len(self._unit_prop_queue) > 0
         while self._unit_prop_queue:
@@ -726,14 +760,14 @@ class SATSolver:
 
         return result
 
-    def _pure_literal(self):
+    def _pure_literal(self) -> bool:
         """Look for pure literals and assign them when found."""
         return False
 
     #########################
     #      Heuristics       #
     #########################
-    def _vsids_init(self):
+    def _vsids_init(self) -> None:
         """Initialize the data structures needed for the VSIDS heuristic."""
         self.lit_heap = []
         self.lit_scores = {}
@@ -744,7 +778,7 @@ class SATSolver:
             heappush(self.lit_heap, (self.lit_scores[var], var))
             heappush(self.lit_heap, (self.lit_scores[-var], -var))
 
-    def _vsids_decay(self):
+    def _vsids_decay(self) -> None:
         """Decay the VSIDS scores for every literal.
 
         Examples
@@ -768,7 +802,7 @@ class SATSolver:
         for lit in self.lit_scores.keys():
             self.lit_scores[lit] /= 2.0
 
-    def _vsids_calculate(self):
+    def _vsids_calculate(self) -> int:
         """
             VSIDS Heuristic Calculation
 
@@ -800,11 +834,11 @@ class SATSolver:
 
         return heappop(self.lit_heap)[1]
 
-    def _vsids_lit_assigned(self, lit):
+    def _vsids_lit_assigned(self, lit: int) -> None:
         """Handle the assignment of a literal for the VSIDS heuristic."""
         pass
 
-    def _vsids_lit_unset(self, lit):
+    def _vsids_lit_unset(self, lit: int) -> None:
         """Handle the unsetting of a literal for the VSIDS heuristic.
 
         Examples
@@ -827,7 +861,7 @@ class SATSolver:
         heappush(self.lit_heap, (self.lit_scores[var], var))
         heappush(self.lit_heap, (self.lit_scores[-var], -var))
 
-    def _vsids_clause_added(self, cls):
+    def _vsids_clause_added(self, cls: Iterable[int]) -> None:
         """Handle the addition of a new clause for the VSIDS heuristic.
 
         Examples
@@ -857,7 +891,7 @@ class SATSolver:
     ########################
     #   Clause Learning    #
     ########################
-    def _simple_add_learned_clause(self, cls):
+    def _simple_add_learned_clause(self, cls: list[int]) -> None:
         """Add a new clause to the theory.
 
         Examples
@@ -893,7 +927,7 @@ class SATSolver:
 
         self.heur_clause_added(cls)
 
-    def _simple_compute_conflict(self):
+    def _simple_compute_conflict(self) -> list[int]:
         """ Build a clause representing the fact that at least one decision made
         so far is wrong.
 
@@ -911,9 +945,17 @@ class SATSolver:
         """
         return [-(level.decision) for level in self.levels[1:]]
 
-    def _simple_clean_clauses(self):
+    def _simple_clean_clauses(self) -> None:
         """Clean up learned clauses."""
         pass
+
+    def _ignore_learned_clause(self, cls: list[int]) -> None:
+        """No-op clause learning for the ``'none'`` strategy."""
+        pass
+
+    def _no_conflict(self) -> list[int]:
+        """No-op conflict computation for the ``'none'`` strategy."""
+        return []
 
 
 class Level:
@@ -922,11 +964,15 @@ class Level:
     enough information for a sound backtracking procedure.
     """
 
-    def __init__(self, decision, flipped=False):
+    decision: int
+    var_settings: set[int]
+    flipped: bool
+
+    def __init__(self, decision: int, flipped: bool = False) -> None:
         self.decision = decision
         self.var_settings = set()
         self.flipped = flipped
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "<Level decision=%s, flipped=%s, var_settings=%s>" % (
             self.decision, self.flipped, self.var_settings)

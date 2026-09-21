@@ -8,7 +8,7 @@ objects as atoms.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Hashable, Iterable, TypeAlias
+from typing import Hashable, Iterable, Iterator, TypeAlias, cast
 
 
 Literal: TypeAlias = int | bool
@@ -192,7 +192,7 @@ def ITE(condition: object, if_true: object, if_false: object) -> object:
     return Formula("ite", (condition, if_true, if_false))
 
 
-def iter_atoms(formula: object):
+def iter_atoms(formula: object) -> Iterator[object]:
     """Yield opaque atomic leaves of *formula*, excluding Boolean constants."""
     if formula is True or formula is False:
         return
@@ -217,7 +217,7 @@ def _as_literal(formula: object, db: ClauseDB) -> Literal | None:
             if isinstance(arg, int):
                 return -arg
         return None
-    return db.literal(formula)  # type: ignore[arg-type]
+    return db.literal(formula)
 
 
 def compile_formula(formula: object, db: ClauseDB) -> Literal:
@@ -354,7 +354,7 @@ def assert_formula(formula: object, db: ClauseDB) -> None:
     if isinstance(formula, Formula) and formula.op == "or":
         literals = [_as_literal(arg, db) for arg in formula.args]
         if all(arg is not None for arg in literals):
-            db.add_clause(literals)  # type: ignore[arg-type]
+            db.add_clause(cast("list[Literal]", literals))
             return
     if isinstance(formula, Formula) and formula.op == "implies":
         antecedent = _conjunction_literals(formula.args[0], db)
@@ -365,8 +365,9 @@ def assert_formula(formula: object, db: ClauseDB) -> None:
     if isinstance(formula, Formula) and formula.op == "equivalent":
         literals = [_as_literal(arg, db) for arg in formula.args]
         if all(arg is not None for arg in literals):
-            first = literals[0]
-            for other in literals[1:]:
+            checked = cast("list[Literal]", literals)
+            first = checked[0]
+            for other in checked[1:]:
                 db.add_clause((_negate(first), other))
                 db.add_clause((first, _negate(other)))
             return
@@ -379,14 +380,18 @@ def _conjunction_literals(formula: object, db: ClauseDB) -> list[Literal] | None
     """Return literal terms for a conjunction, or ``None`` if it is complex."""
     args = formula.args if isinstance(formula, Formula) and formula.op == "and" else (formula,)
     literals = [_as_literal(arg, db) for arg in args]
-    return literals if all(literal is not None for literal in literals) else None  # type: ignore[return-value]
+    if all(literal is not None for literal in literals):
+        return cast("list[Literal]", literals)
+    return None
 
 
 def _disjunction_literals(formula: object, db: ClauseDB) -> list[Literal] | None:
     """Return literal terms for a disjunction, or ``None`` if it is complex."""
     args = formula.args if isinstance(formula, Formula) and formula.op == "or" else (formula,)
     literals = [_as_literal(arg, db) for arg in args]
-    return literals if all(literal is not None for literal in literals) else None  # type: ignore[return-value]
+    if all(literal is not None for literal in literals):
+        return cast("list[Literal]", literals)
+    return None
 
 
 __all__ = [

@@ -1,29 +1,31 @@
 import subprocess
 import sys
 from collections import Counter
+from typing import Hashable
 
 from reasoning.clauses import ClauseDB, OR
 from reasoning.discovery import discover_facts, relevant_subjects
 
 
 class Adapter:
-    def __init__(self):
-        self.calls = Counter()
+    def __init__(self) -> None:
+        self.calls: Counter[str] = Counter()
 
-    def relevance_keys(self, atom):
+    def relevance_keys(self, atom: str) -> set[Hashable]:
         return set(atom)
 
-    def subjects(self, atom):
+    def subjects(self, atom: str) -> tuple[str, ...]:
         return (atom,)
 
-    fact_subjects = subjects
+    def fact_subjects(self, atom: str) -> tuple[str, ...]:
+        return (atom,)
 
-    def facts_for(self, subject):
+    def facts_for(self, subject: str) -> list[str]:
         self.calls[subject] += 1
         return {'a': ['b'], 'b': ['a']}[subject]
 
 
-def test_discovery_cycles_and_rounds():
+def test_discovery_cycles_and_rounds() -> None:
     adapter = Adapter()
     assert discover_facts({'a'}, ClauseDB(), adapter) == {'a', 'b'}
     assert adapter.calls == {'a': 1, 'b': 1}
@@ -33,11 +35,11 @@ def test_discovery_cycles_and_rounds():
     assert discover_facts({'a'}, ClauseDB(), adapter, 0) == set()
 
 
-def test_relevance_transitive_closure():
+def test_relevance_transitive_closure() -> None:
     assert relevant_subjects('a', OR('ab', 'bc', 'z'), Adapter()) == {'a', 'ab', 'bc'}
 
 
-def test_core_works_with_sympy_imports_blocked():
+def test_core_works_with_sympy_imports_blocked() -> None:
     code = '''
 import sys
 class BlockSympy:
