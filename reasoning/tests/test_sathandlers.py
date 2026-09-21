@@ -1,8 +1,11 @@
 from sympy import Q, symbols
 from sympy.core import Add
+from sympy.core.basic import Basic
 from sympy.functions.elementary.complexes import Abs
 
-from reasoning.clauses import Formula
+from reasoning.clauses import Formula, iter_atoms
+from reasoning.predicates import AppliedPredicate as LocalAppliedPredicate
+from reasoning.predicates import Q as LocalQ
 from reasoning.registry import ClassFactRegistry
 from reasoning.sathandlers import allargs, anyarg, class_fact_registry, exactlyonearg
 
@@ -45,6 +48,11 @@ def test_registry_applies_base_class_handlers_and_combines_results() -> None:
 
 def test_abs_facts_contain_no_sympy_boolean_connectives() -> None:
     x = symbols('x')
-    facts = class_fact_registry(Abs(x))
+    expression = Abs(x)
+    facts = class_fact_registry(expression)
     assert any(isinstance(fact, Formula) for fact in facts)
-    assert Q.nonnegative(Abs(x)) in facts
+    assert LocalQ.nonnegative(expression) in facts
+    atoms = [atom for fact in facts for atom in iter_atoms(fact)]
+    for atom in atoms:
+        assert isinstance(atom, LocalAppliedPredicate)
+        assert isinstance(atom.arguments[0], Basic)

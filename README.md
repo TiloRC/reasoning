@@ -36,14 +36,21 @@ assert ReasoningEngine(db).ask(query) is True
   subject once. Its adapter supplies expression knowledge.
 - `solver.py` contains the propositional DPLL2 solver extracted from SymPy;
   `engine.py` manages consistency checking and entailment queries.
-- `sympy_adapter.py` translates Boolean expressions, inspects predicates and
-  symbols, and instantiates cached number/matrix fact templates.
-- `sathandlers.py` inspects SymPy expressions but emits lightweight formulas.
-  `registry.py` is independent of SymPy.
+- `predicates.py` owns a SymPy-independent `Q` vocabulary. Predicates apply to
+  opaque arguments to form hashable applied predicates, so only the argument
+  expressions of `Q` applications need to be SymPy objects.
+- `sympy_adapter.py` translates Boolean expressions, relations, and `Q`
+  applications into local formulas, inspects predicates and symbols, and
+  instantiates cached number/matrix fact templates.
+- `sathandlers.py` inspects SymPy expressions but emits lightweight formulas
+  over local predicates. `registry.py` is independent of SymPy.
 
 The core does not import SymPy. SymPy expressions can be opaque atoms without
-requiring the core to understand them. Handler facts and query formulas are
-compiled directly to integer clauses; there is no symbolic CNF intermediate.
+requiring the core to understand them, and `satask` normalizes its inputs so
+SymPy `Q` applications become local applied predicates carrying the original
+expression arguments. Every normalized atom must be an applied predicate;
+other leaves raise `TypeError`. Handler facts and query formulas are compiled
+directly to integer clauses; there is no symbolic CNF intermediate.
 `ClauseDB.format_clauses()` provides readable diagnostics.
 
 `satask` retains its three-valued results and inconsistency errors.

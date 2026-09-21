@@ -1,5 +1,6 @@
 from __future__ import annotations
 from sympy.assumptions.ask import Q
+from sympy.core.basic import Basic
 from sympy.core.numbers import (I, pi, E)
 from sympy.core.relational import (Eq, Gt)
 from sympy.core.singleton import S
@@ -7,11 +8,15 @@ from sympy.core.symbol import symbols, Dummy
 from sympy.functions.elementary.complexes import Abs
 from sympy.logic.boolalg import Equivalent, Implies, Xor
 from sympy.matrices.expressions.matexpr import MatrixSymbol
-from sympy.assumptions.cnf import CNF, Literal
+from sympy.assumptions.assume import Predicate as SymPyPredicate
+from sympy.assumptions.cnf import CNF
+from reasoning.clauses import iter_atoms
+from reasoning.predicates import AppliedPredicate as LocalAppliedPredicate
+from reasoning.predicates import Q as LocalQ
 from reasoning.satask import (satask, extract_predargs,
     get_relevant_clsfacts)
 from reasoning.sathandlers import class_fact_registry
-from reasoning.sympy_adapter import to_sympy
+from reasoning.sympy_adapter import normalize, to_local_predicate, to_sympy
 
 from sympy.testing.pytest import raises, XFAIL
 
@@ -379,15 +384,15 @@ def test_get_relevant_clsfacts() -> None:
     exprs = {Abs(x*y)}
     exprs, facts = get_relevant_clsfacts(exprs)
     assert exprs == {x*y}
-    decoded = {frozenset(Literal(facts.symbols[abs(lit)], lit < 0)
+    decoded = {frozenset((facts.symbols[abs(lit)], lit < 0)
                          for lit in clause) for clause in facts.data}
     assert decoded == \
-        {frozenset({Literal(Q.nonnegative(Abs(x*y)), False)}),
-         frozenset({Literal(Q.even(Abs(x*y)), False), Literal(Q.even(x*y), True)}),
-         frozenset({Literal(Q.integer(Abs(x*y)), False), Literal(Q.integer(x*y), True)}),
-         frozenset({Literal(Q.odd(Abs(x*y)), False), Literal(Q.odd(x*y), True)}),
-         frozenset({Literal(Q.zero(Abs(x*y)), False), Literal(Q.zero(x*y), True)}),
-         frozenset({Literal(Q.zero(Abs(x*y)), True), Literal(Q.zero(x*y), False)})}
+        {frozenset({(LocalQ.nonnegative(Abs(x*y)), False)}),
+         frozenset({(LocalQ.even(Abs(x*y)), False), (LocalQ.even(x*y), True)}),
+         frozenset({(LocalQ.integer(Abs(x*y)), False), (LocalQ.integer(x*y), True)}),
+         frozenset({(LocalQ.odd(Abs(x*y)), False), (LocalQ.odd(x*y), True)}),
+         frozenset({(LocalQ.zero(Abs(x*y)), False), (LocalQ.zero(x*y), True)}),
+         frozenset({(LocalQ.zero(Abs(x*y)), True), (LocalQ.zero(x*y), False)})}
 
 def test_issue_27467() -> None:
     s = sum(Dummy() for _ in range(10))
@@ -471,3 +476,28 @@ def test_satask_rejects_non_expression_inputs() -> None:
     raises(TypeError, lambda: satask(object()))
     raises(TypeError, lambda: satask(Q.real(x), 1.5))
     raises(TypeError, lambda: satask(Q.real(x), []))
+
+
+def test_to_local_predicate_maps_custom_predicates() -> None:
+    custom = SymPyPredicate("CustomPredicate")
+    converted = to_local_predicate(custom(x))
+    assert isinstance(converted, LocalAppliedPredicate)
+    assert converted.name == "CustomPredicate"
+    assert converted.arguments == (x,)
+    assert to_local_predicate(Q.real(x)).predicate is LocalQ.real
+    assert satask(custom(x)) is None
+
+
+def test_normalize_rejects_non_predicate_atoms() -> None:
+    raises(TypeError, lambda: normalize(x))
+    raises(TypeError, lambda: satask(x))
+    raises(TypeError, lambda: satask(Q.real(x), x))
+
+
+def test_normalize_uses_local_predicates_for_sympy_q() -> None:
+    formula = normalize(Q.real(x) & ~Q.zero(x) & Eq(x, y))
+    atoms = list(iter_atoms(formula))
+    assert {repr(atom) for atom in atoms} == {"Q.real(x)", "Q.zero(x)", "Q.eq(x, y)"}
+    for atom in atoms:
+        assert isinstance(atom, LocalAppliedPredicate)
+        assert isinstance(atom.arguments[0], Basic)

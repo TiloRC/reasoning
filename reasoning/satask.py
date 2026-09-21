@@ -6,7 +6,9 @@ from typing import Iterable
 from .clauses import ClauseDB, assert_formula, compile_formula, iter_atoms
 from .discovery import discover_facts, relevant_subjects
 from .engine import ReasoningEngine
-from .sympy_adapter import SympyAdapter, to_formula, to_sympy
+from .sympy_adapter import (
+    NormalizedFormula, SympyAdapter, normalize, to_formula,
+)
 from .sympy_types import SymPyExpr
 
 
@@ -33,15 +35,14 @@ def satask(proposition: SymPyExpr | bool, assumptions: SymPyExpr | bool = True,
     By default inconsistent assumptions raise ValueError. ``early_return``
     permits an answer from unit propagation while trusting consistency.
 
-    Inputs are normalized by :func:`to_sympy`: Python Booleans and legacy CNF
-    objects are accepted, while any other non-SymPy value raises TypeError.
+    Inputs are normalized by :func:`~reasoning.sympy_adapter.normalize`:
+    Python Booleans and legacy CNF objects are accepted, any other non-SymPy
+    value raises TypeError, and SymPy ``Q`` applications become local
+    :mod:`reasoning.predicates` applications whose arguments are the original
+    SymPy expressions.
     """
-    prop = to_sympy(proposition)
-    assump = to_sympy(assumptions)
-    assert isinstance(prop, SymPyExpr)
-    assert isinstance(assump, SymPyExpr)
-    prop_formula = to_formula(prop)
-    assump_formula = to_formula(assump)
+    prop_formula: NormalizedFormula = normalize(proposition)
+    assump_formula: NormalizedFormula = normalize(assumptions)
     db = get_all_relevant_facts(prop_formula, assump_formula, use_known_facts, iterations)
     assert_formula(assump_formula, db)
     query = compile_formula(prop_formula, db)

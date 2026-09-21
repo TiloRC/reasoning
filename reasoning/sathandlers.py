@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from sympy.assumptions.ask import Q
 from sympy.core import Add, Mul, Pow, Number, NumberSymbol
 from sympy.core.numbers import ImaginaryUnit
 from sympy.functions.elementary.complexes import Abs
@@ -15,10 +14,11 @@ from sympy.logic.boolalg import And, Or
 from sympy.matrices.expressions import MatMul
 
 from reasoning.clauses import AND, EQUIVALENT, IMPLIES, NOT, OR
+from reasoning.predicates import Predicate, Q
 from reasoning.registry import ClassFactRegistry
 from reasoning.sympy_types import SymPyExpr
 
-Predicate = Callable[[SymPyExpr], object]
+PredicateCall = Callable[[SymPyExpr], object]
 
 
 # The public helpers preserve their old signature. Registered handlers use the
@@ -38,15 +38,15 @@ def exactlyonearg(symbol: SymPyExpr, fact: SymPyExpr, expr: SymPyExpr) -> SymPyE
                 for index, predicate in enumerate(predicates)))
 
 
-def _allargs(predicate: Predicate, expr: SymPyExpr) -> object:
+def _allargs(predicate: PredicateCall, expr: SymPyExpr) -> object:
     return AND(*(predicate(arg) for arg in expr.args))
 
 
-def _anyarg(predicate: Predicate, expr: SymPyExpr) -> object:
+def _anyarg(predicate: PredicateCall, expr: SymPyExpr) -> object:
     return OR(*(predicate(arg) for arg in expr.args))
 
 
-def _exactlyonearg(predicate: Predicate, expr: SymPyExpr) -> object:
+def _exactlyonearg(predicate: PredicateCall, expr: SymPyExpr) -> object:
     predicates = [predicate(arg) for arg in expr.args]
     return OR(*(AND(item, *(NOT(other) for other in predicates[:index] + predicates[index + 1:]))
                 for index, item in enumerate(predicates)))

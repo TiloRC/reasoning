@@ -1,10 +1,9 @@
 """The boundary between SymPy expressions and the propositional core."""
 from functools import lru_cache
-from typing import Any, Callable, Iterable, cast
+from typing import Any, Callable, Iterable, TypeAlias, cast
 
 from sympy import S, Symbol
 from sympy.assumptions.assume import AppliedPredicate
-from sympy.assumptions.ask import Q
 from sympy.assumptions.ask_generated import (
     get_all_known_matrix_facts, get_all_known_number_facts,
 )
@@ -17,9 +16,15 @@ from sympy.matrices.kind import MatrixKind
 
 from .clauses import (
     ClauseDB, Formula, AND, OR, NOT, IMPLIES, EQUIVALENT, XOR, ITE as IF,
+    iter_atoms,
 )
+from .predicates import AppliedPredicate as LocalAppliedPredicate
+from .predicates import Predicate as LocalPredicate
+from .predicates import Q as LocalQ
 from .sathandlers import class_fact_registry
 from .sympy_types import SymPyExpr
+
+NormalizedFormula: TypeAlias = bool | Formula | LocalAppliedPredicate
 
 
 def to_sympy(value: object) -> SymPyExpr:
@@ -45,6 +50,28 @@ def to_sympy(value: object) -> SymPyExpr:
     return result
 
 
+def to_local_predicate(applied: Any) -> LocalAppliedPredicate:
+    """Convert a SymPy applied predicate to the local predicate vocabulary."""
+    return LocalQ.of(applied.function.name)(*applied.arguments)
+
+
+def normalize(value: object) -> NormalizedFormula:
+    """Normalize a public input to a SymPy-free formula.
+
+    SymPy Booleans, relations, and ``Q`` applications become lightweight
+    formulas whose atoms are :mod:`reasoning.predicates` applications; the
+    only SymPy values that remain are the expression arguments of those
+    applications.  Any other leaf raises TypeError.
+    """
+    expr = to_sympy(value)
+    assert isinstance(expr, SymPyExpr)
+    formula = to_formula(expr)
+    for atom in iter_atoms(formula):
+        if not isinstance(atom, LocalAppliedPredicate):
+            raise TypeError(f"{atom!r} is not an applied predicate")
+    return cast("NormalizedFormula", formula)
+
+
 def to_formula(expr: object) -> object:
     if isinstance(expr, (Formula, bool)):
         return expr
@@ -60,7 +87,8 @@ def to_formula(expr: object) -> object:
         return AND(*(OR(*(NOT(to_formula(lit.lit)) if lit.is_Not
                            else to_formula(lit.lit) for lit in clause))
                      for clause in clauses))
-    relation = {Eq: Q.eq, Ne: Q.ne, Gt: Q.gt, Lt: Q.lt, Ge: Q.ge, Le: Q.le}.get(type(value))
+    relation = {Eq: LocalQ.eq, Ne: LocalQ.ne, Gt: LocalQ.gt,
+                Lt: LocalQ.lt, Ge: LocalQ.ge, Le: LocalQ.le}.get(type(value))
     if relation is not None:
         return relation(*value.args)
     operators: dict[Any, Callable[..., object]] = {
@@ -73,34 +101,46 @@ def to_formula(expr: object) -> object:
     if isinstance(value, (Nand, Nor, Xnor)):
         constructor = AND if isinstance(value, Nand) else OR if isinstance(value, Nor) else XOR
         return NOT(constructor(*(to_formula(arg) for arg in value.args)))
+    if isinstance(value, AppliedPredicate):
+        return to_local_predicate(value)
     return expr
 
 
 @lru_cache(maxsize=3)
 def _known_template(numbers: bool, matrices: bool) -> tuple[
-    list[SymPyExpr], tuple[tuple[int, ...], ...],
+    list[LocalPredicate], tuple[tuple[int, ...], ...],
 ]:
     clauses: set[Any] = set()
     if numbers:
         clauses.update(get_all_known_number_facts())
     if matrices:
         clauses.update(get_all_known_matrix_facts())
-    predicates = sorted({lit.lit for clause in clauses for lit in clause}, key=str)
-    encoding = {predicate: i + 1 for i, predicate in enumerate(predicates)}
+    sympy_predicates = sorted({lit.lit for clause in clauses for lit in clause}, key=str)
+    predicates = [LocalQ.of(predicate.name) for predicate in sympy_predicates]
+    encoding = {predicate: i + 1 for i, predicate in enumerate(sympy_predicates)}
     data = tuple(tuple(-encoding[lit.lit] if lit.is_Not else encoding[lit.lit]
                        for lit in clause) for clause in clauses)
     return predicates, data
 
 
 class SympyAdapter:
-    def relevance_keys(self, atom: SymPyExpr) -> set[SymPyExpr]:
+    def relevance_keys(self, atom: Any) -> set[SymPyExpr]:
+        if isinstance(atom, LocalAppliedPredicate):
+            keys: set[SymPyExpr] = set()
+            for argument in atom.arguments:
+                keys.update(cast("Any", argument).atoms(Symbol))
+            return keys
         return cast("set[SymPyExpr]", atom.atoms(Symbol))
 
-    def subjects(self, atom: SymPyExpr) -> Iterable[object]:
-        return atom.arguments if isinstance(atom, AppliedPredicate) else (atom,)
+    def subjects(self, atom: Any) -> Iterable[object]:
+        if isinstance(atom, (LocalAppliedPredicate, AppliedPredicate)):
+            return atom.arguments
+        return (atom,)
 
-    def fact_subjects(self, atom: SymPyExpr) -> Iterable[object]:
-        return atom.arguments if isinstance(atom, AppliedPredicate) else ()
+    def fact_subjects(self, atom: Any) -> Iterable[object]:
+        if isinstance(atom, (LocalAppliedPredicate, AppliedPredicate)):
+            return atom.arguments
+        return ()
 
     def facts_for(self, subject: SymPyExpr) -> Iterable[object]:
         return (to_formula(fact) for fact in class_fact_registry(subject))
