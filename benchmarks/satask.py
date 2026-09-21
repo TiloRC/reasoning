@@ -16,9 +16,10 @@ from reasoning.clauses import assert_formula, compile_formula
 from reasoning.engine import ReasoningEngine
 from reasoning.satask import get_all_relevant_facts
 from reasoning.sympy_adapter import to_formula
+from reasoning.sympy_types import SymPyExpr
 
 
-def cases() -> dict[str, tuple[Any, Any]]:
+def cases() -> dict[str, tuple[SymPyExpr, SymPyExpr]]:
     x, y = symbols('x y')
     xs = symbols('x:10')
     matrix = MatrixSymbol('A', 2, 2)
@@ -31,7 +32,7 @@ def cases() -> dict[str, tuple[Any, Any]]:
     }
 
 
-def measure(proposition: Any, assumptions: Any) -> dict[str, Any]:
+def measure(proposition: SymPyExpr, assumptions: SymPyExpr) -> dict[str, Any]:
     start = perf_counter()
     prop, assump = to_formula(proposition), to_formula(assumptions)
     converted = perf_counter()

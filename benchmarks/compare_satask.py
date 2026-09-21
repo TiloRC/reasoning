@@ -24,6 +24,7 @@ from sympy.logic.boolalg import And, Equivalent, Implies, Not, Or, Xor
 from sympy.matrices.expressions import MatrixSymbol
 
 from reasoning.satask import satask as current_satask
+from reasoning.sympy_types import SymPyExpr
 
 
 def _load_module(name: str, path: Path) -> Any:
@@ -51,7 +52,8 @@ def load_baseline(satask_path: Path, handlers_path: Path) -> Callable[..., Any]:
             sys.modules["reasoning.sathandlers"] = saved_handlers
 
 
-def evaluate(function: Callable[..., Any], proposition: Any, assumptions: Any,
+def evaluate(function: Callable[..., Any], proposition: SymPyExpr,
+             assumptions: SymPyExpr,
              early_return: bool = False) -> tuple[str, Any]:
     try:
         return "value", function(proposition, assumptions, early_return=early_return)
@@ -59,7 +61,7 @@ def evaluate(function: Callable[..., Any], proposition: Any, assumptions: Any,
         return "error", type(error).__name__
 
 
-def cases(seed: int, random_cases: int) -> list[tuple[Any, Any]]:
+def cases(seed: int, random_cases: int) -> list[tuple[SymPyExpr, SymPyExpr]]:
     x, y, z = symbols("x y z")
     subjects = [x, y, x + y, x*y, x*y*z, x**2, x**3, x**y,
                 abs(x), abs(x*y), 2, 3, I, pi]
@@ -85,7 +87,7 @@ def cases(seed: int, random_cases: int) -> list[tuple[Any, Any]]:
     ]
     rng = random.Random(seed)
 
-    def formula(depth: int) -> Any:
+    def formula(depth: int) -> SymPyExpr:
         if depth == 0:
             return rng.choice(atoms)
         left, right = formula(depth - 1), formula(depth - 1)
@@ -105,7 +107,8 @@ def cases(seed: int, random_cases: int) -> list[tuple[Any, Any]]:
 
 def compare(baseline: Callable[..., Any], seed: int, random_cases: int,
             early_return: bool = False) -> tuple[
-                int, list[tuple[int, Any, Any, tuple[str, Any], tuple[str, Any]]],
+                int, list[tuple[int, SymPyExpr, SymPyExpr,
+                                tuple[str, Any], tuple[str, Any]]],
             ]:
     mismatches = []
     all_cases = cases(seed, random_cases)

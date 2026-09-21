@@ -11,6 +11,7 @@ from sympy.assumptions.cnf import CNF, Literal
 from reasoning.satask import (satask, extract_predargs,
     get_relevant_clsfacts)
 from reasoning.sathandlers import class_fact_registry
+from reasoning.sympy_adapter import to_sympy
 
 from sympy.testing.pytest import raises, XFAIL
 
@@ -455,3 +456,18 @@ def test_python_boolean_constants_and_zero_iterations() -> None:
 
 def test_disconnected_assumptions_still_checked() -> None:
     raises(ValueError, lambda: satask(Q.real(x), Q.positive(y) & ~Q.positive(y)))
+
+
+def test_to_sympy_normalizes_public_inputs() -> None:
+    expr = Q.real(x)
+    assert to_sympy(True) is S.true
+    assert to_sympy(False) is S.false
+    assert to_sympy(expr) is expr
+    assert to_sympy(CNF.from_prop(Q.zero(x) & Q.zero(y))) == Q.zero(x) & Q.zero(y)
+
+
+def test_satask_rejects_non_expression_inputs() -> None:
+    raises(TypeError, lambda: satask(0))
+    raises(TypeError, lambda: satask(object()))
+    raises(TypeError, lambda: satask(Q.real(x), 1.5))
+    raises(TypeError, lambda: satask(Q.real(x), []))

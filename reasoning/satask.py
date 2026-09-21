@@ -6,7 +6,8 @@ from typing import Iterable
 from .clauses import ClauseDB, assert_formula, compile_formula, iter_atoms
 from .discovery import discover_facts, relevant_subjects
 from .engine import ReasoningEngine
-from .sympy_adapter import SympyAdapter, to_formula
+from .sympy_adapter import SympyAdapter, to_formula, to_sympy
+from .sympy_types import SymPyExpr
 
 
 def _iteration_limit(iterations: object) -> int | None:
@@ -19,7 +20,7 @@ def _iteration_limit(iterations: object) -> int | None:
     return iterations
 
 
-def satask(proposition: object, assumptions: object = True,
+def satask(proposition: SymPyExpr | bool, assumptions: SymPyExpr | bool = True,
            use_known_facts: bool = True, iterations: object = None,
            early_return: bool = False) -> bool | None:
     """Return True, False, or None according to the supplied assumptions.
@@ -31,12 +32,19 @@ def satask(proposition: object, assumptions: object = True,
 
     By default inconsistent assumptions raise ValueError. ``early_return``
     permits an answer from unit propagation while trusting consistency.
+
+    Inputs are normalized by :func:`to_sympy`: Python Booleans and legacy CNF
+    objects are accepted, while any other non-SymPy value raises TypeError.
     """
-    proposition = to_formula(proposition)
-    assumptions = to_formula(assumptions)
-    db = get_all_relevant_facts(proposition, assumptions, use_known_facts, iterations)
-    assert_formula(assumptions, db)
-    query = compile_formula(proposition, db)
+    prop = to_sympy(proposition)
+    assump = to_sympy(assumptions)
+    assert isinstance(prop, SymPyExpr)
+    assert isinstance(assump, SymPyExpr)
+    prop_formula = to_formula(prop)
+    assump_formula = to_formula(assump)
+    db = get_all_relevant_facts(prop_formula, assump_formula, use_known_facts, iterations)
+    assert_formula(assump_formula, db)
+    query = compile_formula(prop_formula, db)
     return ReasoningEngine(db).ask(query, early_return=early_return)
 
 
