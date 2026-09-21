@@ -1,0 +1,10 @@
+{
+    "version": 1,
+    "project": "reasoning",
+    "repo": ".",
+    "branches": ["HEAD"],
+    "environment_type": "virtualenv",
+    "pythons": ["3.14"],
+    "benchmark_dir": "asvbench",
+    "install_command": "python -m pip install '{wheel_file}[sympy,dev]'"
+}

@@ -1,4 +1,10 @@
 .venv/
+.asv-venv/
 __pycache__/
 *.egg-info/
 .pytest_cache/
+
+# asv: per-commit environments, results, published HTML
+env/
+results/
+html/
