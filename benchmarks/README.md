@@ -65,19 +65,21 @@ worktree Git pointers and concurrent edits do not affect the run:
 ```sh
 bench-container build reasoning-bench:local . benchmarks/Dockerfile
 git clone --no-hardlinks . /tmp/reasoning-bench-source
-bench-container run reasoning-bench:local /tmp/reasoning-bench-source -- sh -ec '
-    cp -a /work/. /tmp/source
+BENCH_CPU=10 bench-container run reasoning-bench:local /tmp/reasoning-bench-source -- sh -ec '
+    cp -R /work/. /tmp/source
     cd /tmp/source
     python -m venv --system-site-packages /tmp/venv
     /tmp/venv/bin/python -m pip install --no-deps --no-build-isolation -e .
-    /tmp/venv/bin/python -m asv machine --yes
-    /tmp/venv/bin/python -m asv run --python=same --bench "pipeline\." --show-stderr
+    /tmp/venv/bin/python -m asv machine --yes --machine reasoning-cpu10 --num_cpu 1
+    /tmp/venv/bin/python -m asv run --python=same --machine reasoning-cpu10 \
+        --set-commit-hash HEAD --bench "pipeline\." --show-stderr
     cp -a results /results/asv
 '
 ```
 
 The writable container copy accommodates ASV caches and the validation harness's
-temporary wrappers; the host source remains read-only. For smoke checks add
+temporary wrappers; the host source remains read-only. The `--set-commit-hash HEAD` option makes ASV save results from the existing
+Python environment under the tested commit. For smoke checks add
 `--quick --dry-run`. Keep A/B measurements within the same CPU lease or explicitly
 set the same `BENCH_CPU`, hold competing load comparable, and alternate baseline
 and candidate. Record the source commit and image digest with results. Runner
