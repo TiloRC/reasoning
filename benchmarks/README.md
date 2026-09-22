@@ -68,9 +68,10 @@ git clone --no-hardlinks . /tmp/reasoning-bench-source
 bench-container run reasoning-bench:local /tmp/reasoning-bench-source -- sh -ec '
     cp -a /work/. /tmp/source
     cd /tmp/source
-    export PYTHONPATH=/tmp/source
-    python -m asv machine --yes
-    python -m asv run --python=same --bench "pipeline\." --show-stderr
+    python -m venv --system-site-packages /tmp/venv
+    /tmp/venv/bin/python -m pip install --no-deps --no-build-isolation -e .
+    /tmp/venv/bin/python -m asv machine --yes
+    /tmp/venv/bin/python -m asv run --python=same --bench "pipeline\." --show-stderr
     cp -a results /results/asv
 '
 ```
