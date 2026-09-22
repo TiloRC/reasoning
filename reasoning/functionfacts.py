@@ -73,6 +73,7 @@ def _zero_algebraic_facts(expr: SymPyExpr) -> list[object]:
     arg = _argument(expr)
     return [
         IMPLIES(Q.zero(arg), Q.algebraic(expr)),
+        IMPLIES(Q.zero(arg), Q.rational(expr)),
         IMPLIES(AND(Q.algebraic(arg), Q.nonzero(arg)), NOT(Q.algebraic(expr))),
     ]
 
@@ -101,6 +102,7 @@ def _acos_facts(expr: SymPyExpr) -> list[object]:
             Q.positive(expr),
         ),
         IMPLIES(Q.zero(arg - 1), Q.algebraic(expr)),
+        IMPLIES(Q.zero(arg - 1), Q.rational(expr)),
         IMPLIES(AND(Q.algebraic(arg), Q.nonzero(arg - 1)), NOT(Q.algebraic(expr))),
     ]
 
@@ -128,6 +130,7 @@ def _exp_facts(expr: SymPyExpr) -> list[object]:
     period = arg / _IMAGINARY_PI
     twice = 2 * period
     return [
+        Q.complex(expr),
         IMPLIES(OR(Q.real(arg), Q.integer(period)), Q.real(expr)),
         IMPLIES(AND(Q.imaginary(arg), NOT(Q.integer(period))), NOT(Q.real(expr))),
         IMPLIES(Q.real(arg), Q.positive(expr)),
@@ -136,8 +139,24 @@ def _exp_facts(expr: SymPyExpr) -> list[object]:
         IMPLIES(AND(Q.integer(twice), NOT(Q.integer(period))), Q.imaginary(expr)),
         IMPLIES(Q.finite(arg), Q.finite(expr)),
         IMPLIES(Q.zero(arg), Q.algebraic(expr)),
+        IMPLIES(Q.zero(arg), Q.rational(expr)),
         IMPLIES(AND(Q.algebraic(arg), Q.nonzero(arg)), NOT(Q.algebraic(expr))),
     ]
+
+
+def _exp_base_pow_facts(expr: SymPyExpr) -> list[object]:
+    # ``exp(u)**v`` is real when both ``u`` and ``v`` are imaginary: the
+    # principal logarithm of ``exp(u)`` is ``u + 2*pi*I*k``, so the power
+    # equals ``exp(u*v + 2*pi*I*k*v)``, and both exponents are real.
+    base = expr.base
+    if isinstance(base, Pow) and isinstance(base.base, Exp1):
+        base_arg = base.exp
+    elif isinstance(base, exp):
+        base_arg = base.args[0]
+    else:
+        return []
+    return [IMPLIES(AND(Q.imaginary(base_arg), Q.imaginary(expr.exp)),
+                    Q.real(expr))]
 
 
 def _log_facts(expr: SymPyExpr) -> list[object]:
@@ -153,6 +172,7 @@ def _log_facts(expr: SymPyExpr) -> list[object]:
         IMPLIES(Q.zero(arg), NOT(Q.finite(expr))),
         IMPLIES(Q.infinite(arg), NOT(Q.finite(expr))),
         IMPLIES(Q.zero(arg - 1), Q.algebraic(expr)),
+        IMPLIES(Q.zero(arg - 1), Q.rational(expr)),
         IMPLIES(AND(Q.algebraic(arg), Q.nonzero(arg - 1)), NOT(Q.algebraic(expr))),
     ]
 
@@ -212,6 +232,7 @@ def register_function_facts(registry: ClassFactRegistry) -> None:
     registry.multiregister(sin, tan, asin, atan, cos)(_zero_algebraic_facts)
     registry.multiregister(exp)(_exp_facts)
     registry.multiregister(Pow)(_exp_facts)
+    registry.multiregister(Pow)(_exp_base_pow_facts)
     registry.multiregister(atan)(_atan_facts)
     registry.multiregister(asin)(_asin_facts)
     registry.multiregister(acos)(_acos_facts)

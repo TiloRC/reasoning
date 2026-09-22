@@ -59,7 +59,8 @@ def test_exponential_facts() -> None:
     assert satask(Q.positive(exp(x*pi*I)), Q.odd(x)) is False
     assert satask(Q.positive(exp(x*pi*I)), Q.real(x)) is None
 
-    assert satask(Q.finite(exp(x))) is None
+    assert satask(Q.complex(exp(x))) is True
+    assert satask(Q.finite(exp(x))) is True
     assert satask(Q.finite(exp(x)), Q.finite(x)) is True
     assert satask(Q.finite(exp(2))) is True
 
