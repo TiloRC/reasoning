@@ -115,3 +115,28 @@ def test_sound_stub_reports_nothing() -> None:
     report = _audit(case, _stub(None))
     assert report.findings == ()
     assert report.has_model
+
+
+def test_hypothesis_cases_carry_satisfying_models() -> None:
+    from hypothesis import given, settings
+
+    @settings(max_examples=15, deadline=None, database=None)
+    @given(check_soundness.hypothesis_cases(True))
+    def check(case: Any) -> None:
+        assert case.model is not None
+        assert check_soundness.ground_truth(case.assumptions, case.model) is True
+
+    check()
+
+
+def test_unsoundness_found_carries_findings() -> None:
+    case = check_soundness.Case(Q.positive(x), True, "positive")
+    finding = check_soundness.Finding("counterexample", case, "detail")
+    error = check_soundness.UnsoundnessFound([finding])
+    assert error.findings == (finding,)
+
+
+def test_hypothesis_runner_reports_nothing_for_sound_stub() -> None:
+    findings, _ = check_soundness.run_hypothesis(
+        _stub(None), None, matrices=False, max_examples=10, use_oracle=False)
+    assert findings == []

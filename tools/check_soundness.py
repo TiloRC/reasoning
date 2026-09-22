@@ -1,4 +1,4 @@
-"""Random soundness audit for :func:`reasoning.satask.satask`.
+"""Soundness audit for :func:`reasoning.satask.satask`.
 
 The validation suites measure how many queries ``satask`` answers; they do not
 check whether a definite answer is *true*.  This script generates queries and
@@ -23,12 +23,19 @@ imaginary even when the sum cancels.  A model counterexample is therefore only
 reported when SymPy's ``ask`` does not return the same definite answer.  Use
 ``--strict`` to report those upstream-shared counterexamples as well.
 
+Random queries come from Hypothesis, which shrinks each finding to a minimal
+example.  Generated assumptions are satisfied by the model that ships with the
+example, so no query is rejected for lack of a model.  ``--engine random``
+selects the seedable stdlib generator instead, which reports every finding it
+encounters rather than one minimized example per run.
+
 The audit imports ``reasoning`` from the environment; point ``PYTHONPATH`` at
 another checkout to audit its handlers::
 
     .venv/bin/python tools/check_soundness.py
     PYTHONPATH=/path/to/checkout .venv/bin/python tools/check_soundness.py \
-        --seed 7 --cases 200
+        --cases 200
+    .venv/bin/python tools/check_soundness.py --engine random --seed 7
 
 Exit status is 1 when any finding is reported.  A curated list of regression
 cases derived from handler audits runs before the random cases.
@@ -36,10 +43,14 @@ cases derived from handler audits runs before the random cases.
 from __future__ import annotations
 
 import argparse
+import operator
 import random
 from dataclasses import dataclass
 from typing import Any, Callable, Sequence
 
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
+from hypothesis.strategies import DrawFn
 from sympy import (
     Abs, E, I, Q, Rational, S, ask, cos, exp, im, log, pi, re, sin, sqrt,
     symbols,
@@ -99,6 +110,9 @@ RELATION_PREDICATES: tuple[Any, ...] = (Q.eq, Q.ne, Q.gt, Q.ge, Q.lt, Q.le)
 x, y, z = symbols("x y z")
 A, B = MatrixSymbol("A", 2, 2), MatrixSymbol("B", 2, 2)
 
+SCALAR_SYMBOLS: tuple[Any, ...] = (x, y, z)
+MATRIX_SYMBOLS: tuple[Any, ...] = (A, B)
+
 CURATED_MODEL_COUNT = 32
 CURATED_MODEL_TRIES = 400
 
@@ -111,6 +125,8 @@ CURATED_CASES: tuple[tuple[Any, Any, str], ...] = (
      "imaginary(x + y) | imaginary(x) & imaginary(y)"),
     (Q.negative(-I + I*(cos(2)**2 + sin(2)**2)), True,
      "negative(-I + I*(cos(2)**2 + sin(2)**2))"),
+    (Q.complex(1/x), Q.complex(x), "complex(1/x) | complex(x)"),
+    (Q.zero(x), ~Q.complex(1/x), "zero(x) | ~complex(1/x)"),
     (Q.integer(sqrt(2)*x), Q.integer(x), "integer(sqrt(2)*x) | integer(x)"),
     (Q.real(x*y), Q.real(x) & Q.real(y), "real(x*y) | real(x) & real(y)"),
     (Q.zero(x*y), Q.zero(x), "zero(x*y) | zero(x)"),
@@ -126,6 +142,7 @@ class Case:
     label: str
     model_count: int = 12
     model_tries: int = 200
+    model: dict[Any, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -239,13 +256,19 @@ def _counterexample(findings: list[Finding], case: Case,
 
 
 def audit_case(case: Case, scalar_symbols: Sequence[Any],
-               matrix_symbols: Sequence[Any], rng: random.Random,
+               matrix_symbols: Sequence[Any],
+               rng: random.Random | None,
                satask_fn: SataskFn, ask_fn: AskFn, *,
                early_return: bool = False,
                use_oracle: bool = True,
                strict: bool = False) -> CaseReport:
-    models = find_models(case, scalar_symbols, matrix_symbols, rng,
-                         case.model_count, case.model_tries)
+    if case.model is not None:
+        models = [case.model]
+    elif rng is not None:
+        models = find_models(case, scalar_symbols, matrix_symbols, rng,
+                             case.model_count, case.model_tries)
+    else:
+        models = []
     if not models:
         return CaseReport((), False)
 
@@ -373,6 +396,109 @@ def random_cases(rng: random.Random, count: int,
     return cases
 
 
+def scalar_strategy() -> Any:
+    return st.recursive(
+        st.sampled_from((*SCALAR_SYMBOLS, *CONSTANTS)),
+        lambda children: st.one_of(
+            st.builds(operator.add, children, children),
+            st.builds(operator.mul, children, children),
+            st.builds(operator.pow, children, st.sampled_from((2, 3, -1, I))),
+            st.builds(operator.neg, children),
+            st.builds(Abs, children),
+            st.builds(sin, children),
+            st.builds(cos, children),
+            st.builds(exp, children),
+            st.builds(log, children),
+            st.builds(re, children),
+            st.builds(im, children),
+        ),
+        max_leaves=6,
+    )
+
+
+def atom_strategy(matrices: bool) -> Any:
+    scalar = st.builds(
+        lambda predicate, subject: predicate(subject),
+        st.sampled_from(SCALAR_PREDICATES), scalar_strategy())
+    if not matrices:
+        return scalar
+    matrix = st.builds(
+        lambda predicate, subject: predicate(subject),
+        st.sampled_from(MATRIX_PREDICATES), st.sampled_from(MATRIX_SYMBOLS))
+    return st.one_of(scalar, matrix)
+
+
+def formula_strategy(matrices: bool) -> Any:
+    atoms = atom_strategy(matrices)
+    return st.recursive(
+        atoms,
+        lambda children: st.one_of(
+            st.builds(And, children, children),
+            st.builds(Or, children, children),
+            st.builds(Implies, children, children),
+            st.builds(Equivalent, children, children),
+            st.builds(Xor, children, children),
+            st.builds(Not, children),
+        ),
+        max_leaves=4,
+    )
+
+
+@st.composite
+def hypothesis_cases(draw: DrawFn, matrices: bool = True) -> Case:
+    """Generate a query together with a model satisfying its assumptions."""
+    values: dict[Any, Any] = {
+        symbol: draw(st.sampled_from(SCALAR_VALUES))
+        for symbol in SCALAR_SYMBOLS}
+    if matrices:
+        values.update({
+            symbol: draw(st.sampled_from(MATRIX_VALUES))
+            for symbol in MATRIX_SYMBOLS})
+    atoms = draw(st.lists(atom_strategy(matrices), min_size=1, max_size=3))
+    literals = []
+    for atom in atoms:
+        truth = ground_truth(atom, values)
+        if truth is True:
+            literals.append(atom)
+        elif truth is False:
+            literals.append(Not(atom))
+    proposition = draw(formula_strategy(matrices))
+    return Case(proposition, And(*literals), "hypothesis", model=values)
+
+
+class UnsoundnessFound(Exception):
+    def __init__(self, findings: Sequence[Finding]) -> None:
+        super().__init__(f"{len(findings)} finding(s)")
+        self.findings = tuple(findings)
+
+
+def run_hypothesis(satask_fn: SataskFn = satask, ask_fn: AskFn = ask, *,
+                   matrices: bool = True, max_examples: int = 60,
+                   early_return: bool = False, use_oracle: bool = True,
+                   strict: bool = False,
+                   derandomize: bool = False) -> tuple[list[Finding], int]:
+    suppressed = [0]
+
+    @settings(max_examples=max_examples, deadline=None, database=None,
+              derandomize=derandomize,
+              suppress_health_check=[HealthCheck.too_slow,
+                                     HealthCheck.filter_too_much])
+    @given(hypothesis_cases(matrices))
+    def check(case: Case) -> None:
+        report = audit_case(
+            case, SCALAR_SYMBOLS, MATRIX_SYMBOLS, None, satask_fn, ask_fn,
+            early_return=early_return, use_oracle=use_oracle, strict=strict)
+        suppressed[0] += report.suppressed
+        if report.findings:
+            raise UnsoundnessFound(report.findings)
+
+    try:
+        check()
+    except UnsoundnessFound as error:
+        return list(error.findings), suppressed[0]
+    return [], suppressed[0]
+
+
 def run_audit(cases: Sequence[Case], scalar_symbols: Sequence[Any],
               matrix_symbols: Sequence[Any], *,
               satask_fn: SataskFn = satask, ask_fn: AskFn = ask,
@@ -402,14 +528,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--engine", choices=("hypothesis", "random"),
+                        default="hypothesis",
+                        help="random query generator to use")
     parser.add_argument("--seed", type=int, default=30222,
-                        help="seed for the random query generator")
+                        help="seed for the random engine")
     parser.add_argument("--cases", type=int, default=60,
-                        help="number of random queries to generate")
+                        help="random queries to generate (max examples for "
+                             "the hypothesis engine)")
     parser.add_argument("--model-count", type=int, default=12,
                         help="models to collect per query")
     parser.add_argument("--model-tries", type=int, default=200,
                         help="assignment samples per query")
+    parser.add_argument("--derandomize", action="store_true",
+                        help="use a fixed Hypothesis seed for reproducibility")
     parser.add_argument("--no-oracle", action="store_true",
                         help="skip the sympy.ask oracle comparison")
     parser.add_argument("--no-matrices", action="store_true",
@@ -424,27 +556,49 @@ def main(argv: Sequence[str] | None = None) -> int:
                         help="print each case as it is audited")
     arguments = parser.parse_args(argv)
 
-    scalar_symbols = (x, y, z)
-    matrix_symbols = () if arguments.no_matrices else (A, B)
+    scalar_symbols = SCALAR_SYMBOLS
+    matrix_symbols = () if arguments.no_matrices else MATRIX_SYMBOLS
     curated = [Case(proposition, assumptions, label, CURATED_MODEL_COUNT,
                     max(CURATED_MODEL_TRIES, arguments.model_tries))
                for proposition, assumptions, label in CURATED_CASES]
-    generator = random.Random(arguments.seed)
-    generated = random_cases(
-        generator, arguments.cases, scalar_symbols, matrix_symbols,
-        not arguments.no_relations, arguments.model_count,
-        arguments.model_tries)
-    cases = curated + generated
     findings, accepted, skipped, suppressed = run_audit(
-        cases, scalar_symbols, matrix_symbols, seed=arguments.seed,
+        curated, scalar_symbols, matrix_symbols, seed=arguments.seed,
         early_return=arguments.early_return,
-        use_oracle=not arguments.no_oracle, strict=arguments.strict,
-        verbose=arguments.verbose)
+        use_oracle=not arguments.no_oracle, strict=arguments.strict)
+    summary = [f"{accepted} curated queries with a model",
+               f"{skipped} skipped"]
+    if arguments.engine == "hypothesis":
+        if arguments.cases:
+            generated_findings, generated_suppressed = run_hypothesis(
+                matrices=not arguments.no_matrices,
+                max_examples=arguments.cases,
+                early_return=arguments.early_return,
+                use_oracle=not arguments.no_oracle, strict=arguments.strict,
+                derandomize=arguments.derandomize)
+            findings.extend(generated_findings)
+            suppressed += generated_suppressed
+            summary.append(f"{arguments.cases} hypothesis examples")
+        else:
+            summary.append("hypothesis generation disabled")
+    else:
+        generator = random.Random(arguments.seed)
+        generated = random_cases(
+            generator, arguments.cases, scalar_symbols, matrix_symbols,
+            not arguments.no_relations, arguments.model_count,
+            arguments.model_tries)
+        generated_findings, accepted, skipped, generated_suppressed = run_audit(
+            generated, scalar_symbols, matrix_symbols, seed=arguments.seed,
+            early_return=arguments.early_return,
+            use_oracle=not arguments.no_oracle, strict=arguments.strict,
+            verbose=arguments.verbose)
+        findings.extend(generated_findings)
+        suppressed += generated_suppressed
+        summary.append(f"{accepted} random queries with a model")
+        summary.append(f"{skipped} skipped")
     for finding in findings:
         print(finding.format())
-    print(f"\n{len(cases)} queries, {accepted} with a model, {skipped} skipped, "
-          f"{len(findings)} finding(s), {suppressed} upstream-shared "
-          f"counterexample(s)")
+    print(f"\n{', '.join(summary)}, {len(findings)} finding(s), "
+          f"{suppressed} upstream-shared counterexample(s)")
     return 1 if findings else 0
 
 
