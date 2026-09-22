@@ -1,30 +1,32 @@
 """Build the unary known-fact theory for a clause database.
 
-The SymPy known-fact templates are selected exactly the way
-:meth:`~reasoning.sympy_adapter.SympyAdapter.add_known_facts` selects them:
-the kind of the subjects decides whether the number template, the matrix
-template, or both apply.  The difference is that no clauses are added; the
-returned theory enforces the template through conflicts instead.
+The template selection is shared with
+:meth:`~reasoning.sympy_adapter.SympyAdapter.add_known_facts` through
+:func:`~reasoning.sympy_adapter.select_known_template`: the kinds of the
+subjects decide whether the number template, the matrix template, or both
+apply.  The difference is that no clauses are added; the returned theory
+enforces the template through conflicts instead.
+
+This module is only the mapping layer: it compiles the selected template once
+per process and maps the template predicate atoms that the clause database
+already materialized to their solver variables.
 """
 from __future__ import annotations
 
 from functools import lru_cache
 from typing import Iterable
 
-from sympy.core.kind import NumberKind, UndefinedKind
-from sympy.matrices.kind import MatrixKind
-
 from .clauses import ClauseDB
-from .predicates import Q
-from .sympy_adapter import _known_template
+from .predicates import Predicate, Q
+from .sympy_adapter import select_known_template
 from .sympy_types import SymPyExpr
 from .unary_theory import CompiledTemplate, UnaryTheory
 
 
-@lru_cache(maxsize=3)
-def _compiled(numbers: bool, matrices: bool) -> CompiledTemplate:
-    """Compile a known-fact template once per process."""
-    predicates, clauses = _known_template(numbers, matrices)
+@lru_cache(maxsize=4)
+def _compiled(predicates: tuple[Predicate, ...],
+              clauses: tuple[tuple[int, ...], ...]) -> CompiledTemplate:
+    """Compile a selected template once per process."""
     return CompiledTemplate(len(predicates), clauses)
 
 
@@ -43,19 +45,15 @@ def build_unary_theory(db: ClauseDB,
     # The subjects arrive as a set, so fix an order; the theory's propagation
     # order otherwise follows Python's per-process hash randomization.
     subject_list.sort(key=str)
-    numbers = any(expr.kind in (NumberKind, UndefinedKind)
-                  for expr in subject_list)
-    matrices = any(expr.kind == MatrixKind(NumberKind)
-                   for expr in subject_list)
-    if not numbers and not matrices:
+    selected = select_known_template(subject_list)
+    if selected is None:
         return None
 
-    predicates, _clauses = _known_template(numbers, matrices)
-    template = _compiled(numbers, matrices)
+    template = _compiled(tuple(selected.predicates), selected.clauses)
     mappings: list[dict[int, int]] = []
     for subject in subject_list:
         mapping: dict[int, int] = {}
-        for index, predicate in enumerate(predicates, start=1):
+        for index, predicate in enumerate(selected.predicates, start=1):
             variable = db.encoding.get(Q.of(predicate.name)(subject))
             if variable is not None:
                 mapping[index] = variable
