@@ -52,6 +52,7 @@ from reasoning.lra import LRASolver
 from reasoning.predicates import Q
 from reasoning.solver import IpasirStatus, SATSolver
 from reasoning.theory import TheorySolver  # noqa: F401
+from reasoning.unary_theory import CompiledTemplate, UnaryTheory
 
 db = ClauseDB()
 assert_formula(IMPLIES("a", "b"), db)
@@ -75,6 +76,12 @@ lra = LRASolver.from_constraints({
 assert lra.assert_lit(1) is None
 conflict = lra.assert_lit(2)
 assert conflict is not None and conflict[0] is False
+
+template = CompiledTemplate(2, [(-1, 2)])
+assert template.model_counts() == [3]
+theory = UnaryTheory(template, [{1: 1, 2: 2}])
+theory.assert_lit(1)
+assert theory.propagate() == [(2, [-1])]
 
 assert not any(name == "sympy" or name.startswith("sympy.")
                for name in sys.modules)

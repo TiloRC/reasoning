@@ -1,6 +1,8 @@
 """The boundary between SymPy expressions and the propositional core."""
 from functools import lru_cache
-from typing import Any, Callable, Iterable, TypeAlias, cast
+from typing import (
+    Any, Callable, Iterable, NamedTuple, Sequence, TypeAlias, cast,
+)
 
 from sympy import S, Symbol
 from sympy.assumptions.assume import AppliedPredicate
@@ -113,6 +115,32 @@ def _known_template(numbers: bool, matrices: bool) -> tuple[
     return predicates, clauses
 
 
+class KnownTemplate(NamedTuple):
+    """A selected known-fact template and the predicates of its clauses."""
+
+    predicates: list[LocalPredicate]
+    clauses: tuple[tuple[int, ...], ...]
+
+
+def select_known_template(
+        subjects: Sequence[SymPyExpr]) -> KnownTemplate | None:
+    """Return the known-fact template the kinds of *subjects* call for.
+
+    A number-like subject selects the number template, a matrix subject the
+    matrix template, and mixed subjects select both.  ``None`` means no
+    known-fact template applies.  *subjects* must already be materialized
+    because both the kind scan and the caller consume it; this is the single
+    selection shared by :meth:`SympyAdapter.add_known_facts` and the unary
+    theory adapter in :mod:`reasoning.unary_adapter`.
+    """
+    numbers = any(expr.kind in (NumberKind, UndefinedKind) for expr in subjects)
+    matrices = any(expr.kind == MatrixKind(NumberKind) for expr in subjects)
+    if not numbers and not matrices:
+        return None
+    predicates, clauses = _known_template(numbers, matrices)
+    return KnownTemplate(predicates, clauses)
+
+
 class SympyAdapter:
     def relevance_keys(self, atom: Any) -> set[SymPyExpr]:
         if isinstance(atom, LocalAppliedPredicate):
@@ -136,14 +164,16 @@ class SympyAdapter:
         return (to_formula(fact) for fact in class_fact_registry(subject))
 
     def add_known_facts(self, subjects: Iterable[SymPyExpr], db: ClauseDB) -> None:
-        numbers = any(expr.kind in (NumberKind, UndefinedKind) for expr in subjects)
-        matrices = any(expr.kind == MatrixKind(NumberKind) for expr in subjects)
-        predicates, clauses = _known_template(numbers, matrices)
-        for subject in subjects:
+        subject_list = list(subjects)
+        selected = select_known_template(subject_list)
+        if selected is None:
+            return
+        for subject in subject_list:
             mapping: list[int | None] = [None] + [
-                db.literal(predicate(subject)) for predicate in predicates
+                db.literal(predicate(subject))
+                for predicate in selected.predicates
             ]
-            for clause in clauses:
+            for clause in selected.clauses:
                 literals = [
                     cast(int, mapping[lit]) if lit > 0
                     else -cast(int, mapping[-lit])
