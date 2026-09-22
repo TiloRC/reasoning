@@ -7,7 +7,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from sympy import I, Q, S, symbols
+from sympy import I, Q, S, ask, symbols
+from sympy.matrices.expressions import MatPow, MatrixSlice
+from sympy.matrices.immutable import ImmutableMatrix
 
 _TOOL = Path(__file__).resolve().parents[2] / "tools" / "check_soundness.py"
 _spec = importlib.util.spec_from_file_location("check_soundness", _TOOL)
@@ -141,3 +143,36 @@ def test_hypothesis_runner_reports_nothing_for_sound_stub() -> None:
     findings, _ = check_soundness.run_hypothesis(
         _stub(None), None, matrices=False, max_examples=10, use_oracle=False)
     assert findings == []
+
+
+def test_declared_pools_respect_declared_assumptions() -> None:
+    integer_pool = check_soundness.declared_pool(check_soundness.n)
+    assert integer_pool
+    for value in integer_pool:
+        assert ask(Q.integer(value)) is True
+    infinite_pool = check_soundness.declared_pool(check_soundness.xi)
+    assert infinite_pool
+    for value in infinite_pool:
+        assert ask(Q.infinite(value)) is True
+    negative_pool = check_soundness.declared_pool(check_soundness.ni)
+    assert negative_pool
+    for value in negative_pool:
+        assert ask(Q.integer(value)) is True
+        assert ask(Q.negative(value)) is True
+
+
+def test_matrix_element_predicates_are_expanded() -> None:
+    integer_matrix = ImmutableMatrix([[2, 0], [0, 1]])
+    fractional_matrix = ImmutableMatrix([[S.Half, 0], [0, 1]])
+    A = check_soundness.A
+    values = {A: integer_matrix, check_soundness.B: integer_matrix}
+    assert check_soundness.ground_truth(
+        Q.integer_elements(A), values) is True
+    assert check_soundness.ground_truth(
+        Q.integer_elements(A), {A: fractional_matrix,
+                                check_soundness.B: integer_matrix}) is False
+    assert check_soundness.ground_truth(
+        Q.integer_elements(MatPow(A, -2)), values) is False
+    assert check_soundness.ground_truth(
+        Q.integer_elements(MatrixSlice(A, slice(0, 1), slice(0, 1))),
+        values) is True
