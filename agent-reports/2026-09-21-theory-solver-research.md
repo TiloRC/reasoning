@@ -1,15 +1,19 @@
 # Agent report: SymPy theory-solver research (#27835, #30537, #30538 and surroundings)
 
 - **Date:** 2026-09-21
-- **Status:** research only; no code changed, no branches touched
+- **Update (2026-09-22):** the suggested sequencing below was carried out as a
+  prototype; the opt-in protocol + LRA work is merged into `main` at `5bf789e`.
+  See `agent-reports/2026-09-21-lra-theory-prototype.md` and section 7a.
+- **Status:** research only when written; the LRA follow-up now exists on `main`
 - **Scope:** the three anchor PRs, their local branch equivalents under `/home/tilo`,
   the merged SAT/assumptions work they build on, and what it means for
   `/home/tilo/reasoning`
 - **Read this if:** you are deciding whether to revive #27835, finish #30537/#30538,
   or add a theory layer to the `reasoning` core
 - **Stale after:** any push to `TiloRC/sympy:{forward-theory,theory-registration,rf-from_encoded}`,
-  or changes to `sympy/logic/algorithms/dpll2.py`, `lra_theory.py`,
-  `sympy/assumptions/reasoning_engine.py` on master
+  changes to `sympy/logic/algorithms/dpll2.py`, `lra_theory.py`,
+  `sympy/assumptions/reasoning_engine.py` on master, or changes to
+  `reasoning/{theory,lra,lra_adapter,solver,satask}.py` in this repo
 - **TL;DR:** #30538 is a green, self-contained refactor that enables the #30533 plan
   (move LRA input interpretation out of `logic/`); #30537 defines the right 4-method
   `TheorySolver` protocol and fixes a real theory-conflict bug, but **its head commit
@@ -238,6 +242,35 @@ Suggested sequencing (mirrors upstream, cheapest first):
    approach (`find_independent_subset` + direct-implication bitsets + explanation
    clauses) is a good standalone theory design, but only after its debug state is
    cleaned; do not import `facts2.py` as-is.
+
+### 7a. Follow-up (2026-09-22): the prototype exists
+
+Sequencing item 1 above has been implemented on branch `investigate/lra-theory`
+(merged into `main` at merge commit `5bf789e`, not pushed):
+
+- `reasoning/theory.py` defines the #30537 four-method `TheorySolver` protocol
+  with the review fixes: first-conflict-wins in `_assign_literal`, duplicate
+  detection, and no swallowed conflict while assigning an assumption.
+- `reasoning/lra.py` is a SymPy-free dual-simplex port over
+  `(terms, constant, strict, equality)` records using `Fraction`; terms are
+  opaque keys and a small exact `_rref` replaces the SymPy `Matrix`.
+- `reasoning/lra_adapter.py` interprets `LocalQ.eq/gt/lt/ge/le`, folds constant
+  relations into unit clauses, and skips unhandled atoms (nan, imaginary,
+  infinity, non-rational, matrices). Upstream's global nonlinearity rejection
+  was dropped: independent terms are a sound relaxation.
+- `satask(..., use_lra_theory=True)` and
+  `ReasoningEngine(factbase, theory_solvers=...)` are the only API changes; the
+  default path is unchanged. `var_settings` seeds plus a theory raise.
+
+Measured (`agent-reports/2026-09-21-lra-theory-prototype.md`): 135 unit tests
+pass, mypy strict clean; pinned `test_query.py` +1 (`test_issue_28127`, 38→39
+passed, no regressions); a 528-query randomized differential against SymPy
+`ask` had zero disagreements and answered 146 queries `ask` returns `None` for;
+overhead is within noise when off and 1.03–1.43x on relational queries.
+
+Still open: theory propagation, `Q.ne`/negated equalities, relation-to-sign
+bridging (`test_relational` needs the latter), and the decision whether to
+auto-enable the theory in `satask`.
 
 ## 8. Open questions / risks
 
