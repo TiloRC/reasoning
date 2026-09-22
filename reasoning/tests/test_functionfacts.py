@@ -166,7 +166,10 @@ def test_transcendental_function_arguments() -> None:
 def test_factorial_and_sign_facts() -> None:
     assert satask(Q.positive(factorial(x)), Q.integer(x) & Q.positive(x)) is True
     assert satask(Q.positive(factorial(x)), Q.integer(x)) is None
-    assert satask(Q.integer(factorial(x)), Q.integer(x)) is True
+    # factorial(-1) is complex infinity, so integer alone is not enough.
+    assert satask(Q.integer(factorial(x)), Q.integer(x)) is None
+    assert satask(Q.integer(factorial(x)),
+                  Q.integer(x) & Q.nonnegative(x)) is True
 
     assert satask(Q.finite(sign(x))) is True
     assert satask(Q.finite(sign(x)), ~Q.finite(x)) is True

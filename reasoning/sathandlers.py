@@ -66,6 +66,16 @@ def _exactlyonearg(predicate: PredicateCall, expr: SymPyExpr) -> object:
                 for index, item in enumerate(predicates)))
 
 
+def _pow_regular(base: SymPyExpr, exp: SymPyExpr) -> object:
+    """Guard for rules that treat a power as an ordinary complex number.
+
+    ``0**negative`` is complex infinity and ``0**non-real`` is undefined, so
+    the base must be nonzero or the exponent real and nonnegative (``0**0``
+    is the ordinary value 1).
+    """
+    return OR(NOT(Q.zero(base)), Q.nonnegative(exp))
+
+
 def _closed_group(predicate: PredicateCall, expr: SymPyExpr) -> list[object]:
     """The two facts of SymPy's fuzzy ``test_closed_group`` rule.
 
@@ -433,7 +443,8 @@ def _pow_closure_facts(expr: SymPyExpr) -> object:
     defined = OR(NOT(Q.zero(base)), NOT(Q.negative(exp)))
     real_power = OR(Q.integer(exp), AND(Q.real(exp), Q.nonnegative(base)))
     return AND(
-        IMPLIES(_allargs(Q.complex, expr), Q.complex(expr)),
+        IMPLIES(AND(_allargs(Q.complex, expr), _pow_regular(base, exp)),
+                Q.complex(expr)),
         IMPLIES(_exactlyonearg(lambda arg: NOT(Q.complex(arg)), expr),
                 NOT(Q.complex(expr))),
         IMPLIES(AND(_allargs(Q.extended_real, expr), defined, real_power),
@@ -445,7 +456,8 @@ def _pow_closure_facts(expr: SymPyExpr) -> object:
 def _pow_real_facts(expr: SymPyExpr) -> object:
     base, exp = expr.base, expr.exp
     facts = [
-        IMPLIES(AND(Q.imaginary(base), Q.integer(exp)),
+        IMPLIES(AND(Q.imaginary(base), Q.integer(exp),
+                    OR(Q.zero(exp), NOT(Q.zero(base)))),
                 EQUIVALENT(Q.real(expr), Q.even(exp))),
         IMPLIES(AND(Q.real(base), Q.real(exp), Q.positive(base)), Q.real(expr)),
         IMPLIES(
@@ -464,7 +476,7 @@ def _pow_real_facts(expr: SymPyExpr) -> object:
         facts.append(IMPLIES(Q.zero(base), NOT(Q.real(expr))))
     if not isinstance(base, Exp1):
         facts.append(IMPLIES(
-            AND(Q.imaginary(exp), NOT(Q.positive(base))),
+            AND(Q.imaginary(exp), NOT(Q.positive(base)), NOT(Q.zero(exp))),
             EQUIVALENT(Q.real(expr), Q.imaginary(log(base)))))
         coefficient = exp.coeff(S.ImaginaryUnit)
         if coefficient:
@@ -476,15 +488,15 @@ def _pow_real_facts(expr: SymPyExpr) -> object:
                 NOT(Q.real(expr))))
         # Port of SymPy's "b**Imaginary -> Real iff log(b) is imaginary" rule
         # for positive rational bases: log(base) is irrational, so
-        # base**(k*I*pi) is real only when k == 0.  Like upstream, the
-        # exponent == 0 case is ignored (it would be the real value 1).
+        # base**(k*I*pi) is real only when k == 0.  The exponent-zero case is
+        # excluded because it gives the real value 1.
         facts.append(IMPLIES(
             AND(Q.rational(base), Q.positive(base), NOT(Q.zero(base - 1)),
-                Q.integer(exp / S.ImaginaryUnit / pi)),
+                Q.integer(exp / S.ImaginaryUnit / pi), NOT(Q.zero(exp))),
             NOT(Q.real(expr))))
     if isinstance(exp, Rational) and exp.q % 2 == 0:
         facts.append(IMPLIES(
-            AND(Q.real(base), Q.real(exp)),
+            AND(Q.real(base), Q.real(exp), _pow_regular(base, exp)),
             EQUIVALENT(Q.real(expr), Q.nonnegative(base))))
     if isinstance(base, Exp1):
         facts.append(IMPLIES(
@@ -592,7 +604,8 @@ def _pow_imaginary_facts(expr: SymPyExpr) -> object:
 def _pow_algebraic_facts(expr: SymPyExpr) -> object:
     base, exp = expr.base, expr.exp
     facts = [
-        IMPLIES(AND(Q.algebraic(base), Q.rational(exp)), Q.algebraic(expr)),
+        IMPLIES(AND(Q.algebraic(base), Q.rational(exp), _pow_regular(base, exp)),
+                Q.algebraic(expr)),
         IMPLIES(AND(NOT(Q.algebraic(base)), Q.integer(exp), Q.positive(exp)),
                 NOT(Q.algebraic(expr))),
     ]
@@ -606,8 +619,7 @@ def _pow_algebraic_facts(expr: SymPyExpr) -> object:
 def _pow_finite_fact(expr: SymPyExpr) -> object:
     base, exp = expr.base, expr.exp
     return IMPLIES(
-        AND(Q.finite(base), Q.finite(exp),
-            OR(NOT(Q.zero(base)), NOT(Q.negative(exp)))),
+        AND(Q.finite(base), Q.finite(exp), _pow_regular(base, exp)),
         Q.finite(expr),
     )
 
@@ -623,19 +635,24 @@ def _pow_nonzero_fact(expr: SymPyExpr) -> object:
 
 @class_fact_registry.register(Pow)
 def _pow_hermitian_fact(expr: SymPyExpr) -> object:
-    return IMPLIES(AND(Q.hermitian(expr.base), Q.integer(expr.exp)),
-                   Q.hermitian(expr))
+    base, exp = expr.base, expr.exp
+    return IMPLIES(
+        AND(Q.hermitian(base), Q.integer(exp), _pow_regular(base, exp)),
+        Q.hermitian(expr))
 
 
 @class_fact_registry.register(Pow)
 def _pow_antihermitian_facts(expr: SymPyExpr) -> object:
     base, exp = expr.base, expr.exp
     return AND(
-        IMPLIES(AND(Q.hermitian(base), Q.integer(exp)),
+        IMPLIES(AND(Q.hermitian(base), Q.integer(exp),
+                    OR(NOT(Q.zero(base)), NOT(Q.positive(exp)))),
                 NOT(Q.antihermitian(expr))),
-        IMPLIES(AND(Q.antihermitian(base), Q.even(exp)),
+        IMPLIES(AND(Q.antihermitian(base), Q.even(exp),
+                    OR(NOT(Q.zero(base)), NOT(Q.nonnegative(exp)))),
                 NOT(Q.antihermitian(expr))),
-        IMPLIES(AND(Q.antihermitian(base), Q.odd(exp)),
+        IMPLIES(AND(Q.antihermitian(base), Q.odd(exp),
+                    OR(NOT(Q.zero(base)), NOT(Q.negative(exp)))),
                 Q.antihermitian(expr)),
     )
 

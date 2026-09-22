@@ -209,7 +209,7 @@ def _factorial_facts(expr: SymPyExpr) -> list[object]:
     arg = _argument(expr)
     return [
         IMPLIES(AND(Q.integer(arg), Q.positive(arg)), Q.positive(expr)),
-        IMPLIES(Q.integer(arg), Q.integer(expr)),
+        IMPLIES(AND(Q.integer(arg), Q.nonnegative(arg)), Q.integer(expr)),
     ]
 
 

@@ -93,10 +93,14 @@ def test_pow_real_and_rational_facts() -> None:
     assert satask(Q.real(x**y), Q.zero(x) & Q.negative(y)) is None
     assert satask(Q.positive(x**y), Q.zero(x) & Q.negative(y)) is None
 
-    # Positive rational base with an integer multiple of I*pi as exponent is
-    # not real, so it cannot be nonzero either.
-    assert satask(Q.real(Pow(5, 2*I*pi*n)), Q.integer(n)) is False
-    assert satask(Q.nonzero(Pow(5, 2*I*pi*n)), Q.integer(n)) is False
+    # Positive rational base with a nonzero integer multiple of I*pi as
+    # exponent is not real, so it cannot be nonzero either.  n = 0 gives
+    # 5**0 = 1, so the exponent must be known nonzero.
+    assert satask(Q.real(Pow(5, 2*I*pi*n)), Q.integer(n)) is None
+    assert satask(Q.real(Pow(5, 2*I*pi*n)),
+                  Q.integer(n) & Q.nonzero(n)) is False
+    assert satask(Q.nonzero(Pow(5, 2*I*pi*n)),
+                  Q.integer(n) & Q.nonzero(n)) is False
 
     assert satask(Q.rational(1/x), Q.rational(x) & Q.nonzero(x)) is True
     assert satask(Q.rational(1/x), Q.irrational(x)) is False
