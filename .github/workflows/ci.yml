@@ -34,7 +34,7 @@ jobs:
       - name: Install the package with pinned SymPy and dev tools
         run: python -m pip install -e '.[sympy,dev]'
       - name: Run unit tests
-        run: python -m pytest reasoning/tests -q
+        run: python -m pytest reasoning/tests tests -q
       - name: Type check
         run: python -m mypy
       - name: Check the vendored known facts are up to date
@@ -75,7 +75,7 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          python validation/compare_backends.py --timings 0 | tee validation.txt
+          python validation/compare_backends.py --timings 0 --output validation.json | tee validation.txt
       - name: Add the validation progress to the job summary
         if: always() && hashFiles('validation.txt') != ''
         run: |
@@ -98,4 +98,5 @@ jobs:
           path: |
             benchmark.json
             validation.txt
+            validation.json
           if-no-files-found: ignore
