@@ -4,6 +4,8 @@ from typing import Any, Callable, Iterable, TypeAlias, cast
 
 from sympy import S, Symbol
 from sympy.assumptions.assume import AppliedPredicate
+from sympy.core import Add
+from sympy.core.function import Function
 from sympy.core.kind import NumberKind, UndefinedKind
 from sympy.core.relational import Eq, Ne, Gt, Lt, Ge, Le
 from sympy.logic.boolalg import (
@@ -13,13 +15,14 @@ from sympy.matrices.kind import MatrixKind
 
 from .clauses import (
     ClauseDB, Formula, AND, OR, NOT, IMPLIES, EQUIVALENT, XOR, ITE as IF,
-    iter_atoms,
+    assert_formula, iter_atoms,
 )
 from .knownfacts import template as known_facts_template
 from .predicates import AppliedPredicate as LocalAppliedPredicate
 from .predicates import Predicate as LocalPredicate
 from .predicates import Q as LocalQ
 from .sathandlers import class_fact_registry
+from .symbolfacts import declared_assumptions
 from .sympy_types import SymPyExpr
 
 NormalizedFormula: TypeAlias = bool | Formula | LocalAppliedPredicate
@@ -113,6 +116,55 @@ def _known_template(numbers: bool, matrices: bool) -> tuple[
     return predicates, clauses
 
 
+def _extra_predicate_facts(subject: SymPyExpr) -> Iterable[object]:
+    """Predicate-to-predicate facts missing from SymPy's known-fact table.
+
+    These are universal implications, so they are asserted for every subject
+    alongside the imported known facts.  They only mention local predicates
+    and the opaque subject, so the core stays SymPy-free.
+
+    The ``imaginary -> ~hermitian`` implication is omitted for ``Add``
+    subjects.  SymPy's closed-group rule infers ``imaginary`` for a sum of
+    imaginary terms even when the terms cancel to zero, and zero is
+    hermitian (``x + I`` with ``x = -I``), so the implication is only sound
+    for subjects whose ``imaginary`` fact cannot come from that rule.
+    """
+    facts: list[object] = []
+    if not isinstance(subject, Add):
+        facts.append(
+            IMPLIES(LocalQ.imaginary(subject), NOT(LocalQ.hermitian(subject))))
+    facts.extend([
+        IMPLIES(LocalQ.imaginary(subject), NOT(LocalQ.extended_real(subject))),
+        IMPLIES(AND(LocalQ.real(subject), LocalQ.nonzero(subject)),
+                NOT(LocalQ.antihermitian(subject))),
+        IMPLIES(LocalQ.zero(subject), NOT(LocalQ.nonzero(subject))),
+        IMPLIES(LocalQ.nonpositive(subject), NOT(LocalQ.positive(subject))),
+        IMPLIES(LocalQ.nonnegative(subject), NOT(LocalQ.negative(subject))),
+        IMPLIES(LocalQ.integer(subject),
+                EQUIVALENT(LocalQ.odd(subject), NOT(LocalQ.even(subject)))),
+    ])
+    if isinstance(subject, Function):
+        facts.append(IMPLIES(
+            AND(*(LocalQ.commutative(arg) for arg in subject.args)),
+            LocalQ.commutative(subject)))
+        facts.append(IMPLIES(
+            OR(*(NOT(LocalQ.commutative(arg)) for arg in subject.args)),
+            NOT(LocalQ.commutative(subject))))
+    return facts
+
+
+def _mentioned_predicates(formula: object) -> set[object]:
+    """Applied predicates that occur in a normalized formula."""
+    if isinstance(formula, LocalAppliedPredicate):
+        return {formula}
+    if not isinstance(formula, Formula):
+        return set()
+    mentioned: set[object] = set()
+    for arg in formula.args:
+        mentioned |= _mentioned_predicates(arg)
+    return mentioned
+
+
 class SympyAdapter:
     def relevance_keys(self, atom: Any) -> set[SymPyExpr]:
         if isinstance(atom, LocalAppliedPredicate):
@@ -135,10 +187,16 @@ class SympyAdapter:
     def facts_for(self, subject: SymPyExpr) -> Iterable[object]:
         return (to_formula(fact) for fact in class_fact_registry(subject))
 
-    def add_known_facts(self, subjects: Iterable[SymPyExpr], db: ClauseDB) -> None:
+    def add_known_facts(self, subjects: Iterable[SymPyExpr], db: ClauseDB,
+                        assumptions: object = True) -> None:
+        subjects = list(subjects)
         numbers = any(expr.kind in (NumberKind, UndefinedKind) for expr in subjects)
         matrices = any(expr.kind == MatrixKind(NumberKind) for expr in subjects)
         predicates, clauses = _known_template(numbers, matrices)
+        mentioned = _mentioned_predicates(assumptions)
+        symbols: set[SymPyExpr] = set()
+        for subject in subjects:
+            symbols.update(cast("Any", subject).atoms(Symbol))
         for subject in subjects:
             mapping: list[int | None] = [None] + [
                 db.literal(predicate(subject)) for predicate in predicates
@@ -150,3 +208,21 @@ class SympyAdapter:
                     for lit in clause
                 ]
                 db.add_clause(literals)
+            for fact in _extra_predicate_facts(subject):
+                assert_formula(fact, db)
+        # Declared old-assumption facts are premises for the symbols they are
+        # declared on.  An explicit assumption about the same applied predicate
+        # wins, so a default such as ``commutative`` stays overridable.
+        for symbol in symbols:
+            harvested = declared_assumptions(cast("Any", symbol))
+            for name, truth in harvested:
+                predicate = LocalQ.of(name)(symbol)
+                if predicate in mentioned:
+                    continue
+                assert_formula(predicate if truth else NOT(predicate), db)
+            if not any(name == "commutative" for name, _ in harvested):
+                # SymPy treats symbols as commutative unless an assumption
+                # denies it; declared non-commutativity is asserted above.
+                commutative = LocalQ.commutative(symbol)
+                if commutative not in mentioned:
+                    assert_formula(commutative, db)

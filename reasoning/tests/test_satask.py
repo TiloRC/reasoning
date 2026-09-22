@@ -342,11 +342,12 @@ def test_pow_pos_neg() -> None:
     assert satask(Q.negative(x**3), Q.nonpositive(x)) is None
     assert satask(Q.real(x**3), Q.nonpositive(x)) is True
 
-    # If x is zero, x**negative is not real.
+    # If x is zero, x**negative is not real; for x negative it is positive,
+    # so x**-2 is never nonpositive either way.
     assert satask(Q.nonnegative(x**-2), Q.nonpositive(x)) is None
-    assert satask(Q.nonpositive(x**-2), Q.nonpositive(x)) is None
+    assert satask(Q.nonpositive(x**-2), Q.nonpositive(x)) is False
     assert satask(Q.positive(x**-2), Q.nonpositive(x)) is None
-    assert satask(Q.negative(x**-2), Q.nonpositive(x)) is None
+    assert satask(Q.negative(x**-2), Q.nonpositive(x)) is False
     assert satask(Q.real(x**-2), Q.nonpositive(x)) is None
 
     # We could deduce things for negative powers if x is nonzero, but it
@@ -388,9 +389,12 @@ def test_get_relevant_clsfacts() -> None:
                          for lit in clause) for clause in facts.data}
     assert decoded == \
         {frozenset({(LocalQ.nonnegative(Abs(x*y)), False)}),
+         frozenset({(LocalQ.complex(Abs(x*y)), False)}),
          frozenset({(LocalQ.even(Abs(x*y)), False), (LocalQ.even(x*y), True)}),
          frozenset({(LocalQ.integer(Abs(x*y)), False), (LocalQ.integer(x*y), True)}),
          frozenset({(LocalQ.odd(Abs(x*y)), False), (LocalQ.odd(x*y), True)}),
+         frozenset({(LocalQ.positive(Abs(x*y)), False), (LocalQ.nonzero(x*y), True)}),
+         frozenset({(LocalQ.nonzero(Abs(x*y)), False), (LocalQ.nonzero(x*y), True)}),
          frozenset({(LocalQ.zero(Abs(x*y)), False), (LocalQ.zero(x*y), True)}),
          frozenset({(LocalQ.zero(Abs(x*y)), True), (LocalQ.zero(x*y), False)})}
 
