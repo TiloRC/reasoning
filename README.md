@@ -94,6 +94,11 @@ pull request. Timing results and the validation progress comparison appear in
 the job summary; CI timings are illustrative and the validation comparison is
 informational.
 
+To audit definite `satask` answers for soundness, run
+`python tools/check_soundness.py`. It checks answers against concrete models
+and SymPy's `ask` and shrinks findings with Hypothesis; see
+`agent-reports/2026-09-22-soundness-fuzzer.md` for usage and results.
+
 The benchmark reports warm median conversion, discovery/encoding, query
 encoding, and solving times, plus clause and variable counts. Discovery and fact
 encoding are measured together because facts are encoded as they are produced.
