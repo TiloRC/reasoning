@@ -342,11 +342,12 @@ def test_pow_pos_neg() -> None:
     assert satask(Q.negative(x**3), Q.nonpositive(x)) is None
     assert satask(Q.real(x**3), Q.nonpositive(x)) is True
 
-    # If x is zero, x**negative is not real.
+    # If x is zero, x**negative is not real; for x negative it is positive,
+    # so x**-2 is never nonpositive either way.
     assert satask(Q.nonnegative(x**-2), Q.nonpositive(x)) is None
-    assert satask(Q.nonpositive(x**-2), Q.nonpositive(x)) is None
+    assert satask(Q.nonpositive(x**-2), Q.nonpositive(x)) is False
     assert satask(Q.positive(x**-2), Q.nonpositive(x)) is None
-    assert satask(Q.negative(x**-2), Q.nonpositive(x)) is None
+    assert satask(Q.negative(x**-2), Q.nonpositive(x)) is False
     assert satask(Q.real(x**-2), Q.nonpositive(x)) is None
 
     # We could deduce things for negative powers if x is nonzero, but it

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from sympy import I, Q, oo, pi, sqrt, symbols
+from sympy import I, Pow, Q, oo, pi, sqrt, symbols
 from sympy.core.numbers import Rational
 
 from reasoning.satask import satask
 
 x, y, z = symbols('x y z')
+n = symbols('n')
 
 
 def test_add_closure_facts() -> None:
@@ -83,6 +84,19 @@ def test_pow_real_and_rational_facts() -> None:
     assert satask(Q.real(x**y), Q.positive(x) & Q.real(y)) is True
     assert satask(Q.real(x**y), Q.imaginary(x) & Q.odd(y)) is False
     assert satask(Q.real(x**y), Q.imaginary(x) & Q.even(y)) is True
+
+    # 0**negative with a concrete odd-denominator exponent is complex infinity;
+    # a symbolic negative exponent stays unknown like upstream's handler.
+    assert satask(Q.real(Pow(x, -1, evaluate=False)), Q.zero(x)) is False
+    assert satask(Q.real(Pow(x, Rational(-2, 3), evaluate=False)),
+                  Q.zero(x)) is False
+    assert satask(Q.real(x**y), Q.zero(x) & Q.negative(y)) is None
+    assert satask(Q.positive(x**y), Q.zero(x) & Q.negative(y)) is None
+
+    # Positive rational base with an integer multiple of I*pi as exponent is
+    # not real, so it cannot be nonzero either.
+    assert satask(Q.real(Pow(5, 2*I*pi*n)), Q.integer(n)) is False
+    assert satask(Q.nonzero(Pow(5, 2*I*pi*n)), Q.integer(n)) is False
 
     assert satask(Q.rational(1/x), Q.rational(x) & Q.nonzero(x)) is True
     assert satask(Q.rational(1/x), Q.irrational(x)) is False

@@ -382,6 +382,15 @@ def _pow_real_facts(expr: SymPyExpr) -> object:
                 OR(NOT(Q.zero(base)), NOT(Q.negative(exp)))),
             Q.real(expr)),
     ]
+    if (isinstance(exp, Number) and exp < 0
+            and not (isinstance(exp, Rational) and exp.q % 2 == 0)):
+        # 0**negative is complex infinity, which is not real.  This is kept
+        # to concrete negative exponents with an odd denominator (e.g. the -1
+        # in ``Pow(x, -1, evaluate=False)``); upstream's positive handler
+        # stays unknown for a symbolic negative exponent (test_query.py:2001)
+        # and its even-denominator rule claims 0**(negative half) is real, so
+        # this must not contradict the EQUIVALENT rule below.
+        facts.append(IMPLIES(Q.zero(base), NOT(Q.real(expr))))
     if not isinstance(base, Exp1):
         facts.append(IMPLIES(
             AND(Q.imaginary(exp), NOT(Q.positive(base))),
@@ -394,6 +403,14 @@ def _pow_real_facts(expr: SymPyExpr) -> object:
                     NOT(Q.zero(base + 1)), Q.rational(coefficient),
                     Q.nonzero(coefficient)),
                 NOT(Q.real(expr))))
+        # Port of SymPy's "b**Imaginary -> Real iff log(b) is imaginary" rule
+        # for positive rational bases: log(base) is irrational, so
+        # base**(k*I*pi) is real only when k == 0.  Like upstream, the
+        # exponent == 0 case is ignored (it would be the real value 1).
+        facts.append(IMPLIES(
+            AND(Q.rational(base), Q.positive(base), NOT(Q.zero(base - 1)),
+                Q.integer(exp / S.ImaginaryUnit / pi)),
+            NOT(Q.real(expr))))
     if isinstance(exp, Rational) and exp.q % 2 == 0:
         facts.append(IMPLIES(
             AND(Q.real(base), Q.real(exp)),
