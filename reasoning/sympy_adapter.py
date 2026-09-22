@@ -24,6 +24,7 @@ from .predicates import AppliedPredicate as LocalAppliedPredicate
 from .predicates import Predicate as LocalPredicate
 from .predicates import Q as LocalQ
 from .sathandlers import class_fact_registry
+from .symbolfacts import declared_assumptions
 from .sympy_types import SymPyExpr
 
 NormalizedFormula: TypeAlias = bool | Formula | LocalAppliedPredicate
@@ -162,16 +163,16 @@ def _extra_predicate_facts(subject: SymPyExpr) -> Iterable[object]:
     return facts
 
 
-def _negated_predicates(formula: object) -> set[object]:
-    """Applied predicates that occur negated in a normalized formula."""
+def _mentioned_predicates(formula: object) -> set[object]:
+    """Applied predicates that occur in a normalized formula."""
+    if isinstance(formula, LocalAppliedPredicate):
+        return {formula}
     if not isinstance(formula, Formula):
         return set()
-    if formula.op == "not" and isinstance(formula.args[0], LocalAppliedPredicate):
-        return {formula.args[0]}
-    negated: set[object] = set()
+    mentioned: set[object] = set()
     for arg in formula.args:
-        negated |= _negated_predicates(arg)
-    return negated
+        mentioned |= _mentioned_predicates(arg)
+    return mentioned
 
 
 class SympyAdapter:
@@ -202,7 +203,7 @@ class SympyAdapter:
         numbers = any(expr.kind in (NumberKind, UndefinedKind) for expr in subjects)
         matrices = any(expr.kind == MatrixKind(NumberKind) for expr in subjects)
         predicates, clauses = _known_template(numbers, matrices)
-        negated = _negated_predicates(assumptions)
+        mentioned = _mentioned_predicates(assumptions)
         symbols: set[SymPyExpr] = set()
         for subject in subjects:
             symbols.update(cast("Any", subject).atoms(Symbol))
@@ -219,7 +220,19 @@ class SympyAdapter:
                 db.add_clause(literals)
             for fact in _extra_predicate_facts(subject):
                 assert_formula(fact, db)
-        # SymPy treats symbols as commutative unless an assumption denies it.
+        # Declared old-assumption facts are premises for the symbols they are
+        # declared on.  An explicit assumption about the same applied predicate
+        # wins, so a default such as ``commutative`` stays overridable.
         for symbol in symbols:
-            if LocalQ.commutative(symbol) not in negated:
-                assert_formula(LocalQ.commutative(symbol), db)
+            harvested = declared_assumptions(cast("Any", symbol))
+            for name, truth in harvested:
+                predicate = LocalQ.of(name)(symbol)
+                if predicate in mentioned:
+                    continue
+                assert_formula(predicate if truth else NOT(predicate), db)
+            if not any(name == "commutative" for name, _ in harvested):
+                # SymPy treats symbols as commutative unless an assumption
+                # denies it; declared non-commutativity is asserted above.
+                commutative = LocalQ.commutative(symbol)
+                if commutative not in mentioned:
+                    assert_formula(commutative, db)
