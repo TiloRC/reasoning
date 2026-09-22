@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 
 import pytest
 from sympy import MatrixSymbol, Q, symbols
@@ -51,19 +52,24 @@ def test_no_theory_without_known_facts() -> None:
     (Q.prime(x), Q.composite(x), False),
     (Q.zero(x*(x + y)), Q.positive(x) & Q.positive(y), False),
 ])
-def test_answers_match_the_default_path(proposition: object,
-                                        assumptions: object,
-                                        expected: bool | None) -> None:
+def test_answers_match_the_eager_path(proposition: object,
+                                      assumptions: object,
+                                      expected: bool | None) -> None:
     assert satask(proposition, assumptions) is expected
-    assert satask(proposition, assumptions, use_unary_theory=True) is expected
+    assert satask(proposition, assumptions, use_unary_theory=False) is expected
 
 
-def test_matches_the_default_path_for_matrix_subjects() -> None:
+def test_matches_the_eager_path_for_matrix_subjects() -> None:
     matrix = MatrixSymbol('A', 2, 2)
     proposition = Q.diagonal(matrix)
     assumptions = Q.lower_triangular(matrix) & Q.upper_triangular(matrix)
     assert satask(proposition, assumptions) is True
-    assert satask(proposition, assumptions, use_unary_theory=True) is True
+    assert satask(proposition, assumptions, use_unary_theory=False) is True
+
+
+def test_unary_theory_is_enabled_by_default() -> None:
+    default = inspect.signature(satask).parameters['use_unary_theory'].default
+    assert default is True
 
 
 def test_theory_builds_only_materialized_predicates() -> None:
@@ -120,5 +126,4 @@ def test_unary_theory_shrinks_the_clause_database() -> None:
     default = get_all_relevant_facts(prop, assump)
     without_known = get_all_relevant_facts(prop, assump, use_known_facts=False)
     assert len(default.data) - len(without_known.data) == 11 * 81
-    assert satask(Q.integer(sum(xs)), Q.integer(xs[0]),
-                  use_unary_theory=True) is None
+    assert satask(Q.integer(sum(xs)), Q.integer(xs[0])) is None

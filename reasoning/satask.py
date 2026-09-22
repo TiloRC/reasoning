@@ -29,7 +29,7 @@ def satask(proposition: SymPyExpr | bool, assumptions: SymPyExpr | bool = True,
            use_known_facts: bool = True, iterations: object = None,
            early_return: bool = False,
            use_lra_theory: bool = False,
-           use_unary_theory: bool = False) -> bool | None:
+           use_unary_theory: bool = True) -> bool | None:
     """Return True, False, or None according to the supplied assumptions.
 
     Expression facts are discovered breadth-first, processing each expression
@@ -46,9 +46,10 @@ def satask(proposition: SymPyExpr | bool, assumptions: SymPyExpr | bool = True,
     because the theory changes the search and only helps formulas whose
     Boolean structure leaves relations undecided.
 
-    ``use_unary_theory`` keeps the per-subject known-fact clauses out of the
-    clause database and enforces those facts through a unary theory instead;
-    it is opt-in because it changes how the search finds the same answers.
+    ``use_unary_theory`` (the default) keeps the per-subject known-fact
+    clauses out of the clause database and enforces those facts through a
+    unary theory instead. Pass ``False`` to materialize the known-fact
+    templates as clauses; both encodings answer the same queries.
 
     Inputs are normalized by :func:`~reasoning.sympy_adapter.normalize`:
     Python Booleans and legacy CNF objects are accepted, any other non-SymPy
@@ -121,8 +122,8 @@ def get_facts_and_subjects(proposition: object, assumptions: object,
     """Build the handler-fact database and report the known-fact subjects.
 
     This is the ``use_known_facts=False`` half of
-    :func:`get_all_relevant_facts`, kept public so callers can attach a
-    theory instead of materializing the known-fact templates.
+    :func:`get_all_relevant_facts`, kept public so :func:`satask` can attach
+    the unary theory instead of materializing the known-fact templates.
     """
     adapter = SympyAdapter()
     subjects = relevant_subjects(

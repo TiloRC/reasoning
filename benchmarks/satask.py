@@ -1,8 +1,10 @@
-"""Run with: python -m benchmarks.satask [--repeat 15].
+"""Run with: python -m benchmarks.satask [--repeat 15] [--no-unary].
 
 Reports warm median timings in milliseconds. Timings are illustrative, not a
 performance assertion. The phase timings expose conversion, discovery/encoding,
-query encoding, and solving separately.
+query encoding, theory building, and solving separately. By default the
+known-fact templates are enforced by the unary theory, matching ``satask``;
+``--no-unary`` measures the materialized known-fact encoding instead.
 """
 import argparse
 import json
@@ -34,7 +36,7 @@ def cases() -> dict[str, tuple[SymPyExpr, SymPyExpr]]:
 
 
 def measure(proposition: SymPyExpr, assumptions: SymPyExpr,
-            unary: bool = False) -> dict[str, Any]:
+            unary: bool = True) -> dict[str, Any]:
     start = perf_counter()
     prop, assump = to_formula(proposition), to_formula(assumptions)
     converted = perf_counter()
@@ -73,9 +75,9 @@ def measure(proposition: SymPyExpr, assumptions: SymPyExpr,
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('--repeat', type=int, default=15)
-    parser.add_argument('--unary', action='store_true',
-                        help="use the unary known-fact theory instead of "
-                             "materializing the known-fact clauses")
+    parser.add_argument('--no-unary', dest='unary', action='store_false',
+                        help="materialize the known-fact clauses instead of "
+                             "using the unary theory (the satask default)")
     args = parser.parse_args()
     output: dict[str, dict[str, Any]] = {}
     for name, inputs in cases().items():
