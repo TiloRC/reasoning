@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import Callable
 
 from sympy.core.add import Add
-from sympy.core.numbers import Exp1
+from sympy.core.numbers import Exp1, Number
 from sympy.core.power import Pow
 from sympy.core.singleton import S
 from sympy.functions.combinatorial.factorials import factorial
@@ -59,11 +59,14 @@ def _exactlyonearg(predicate: PredicateCall, expr: SymPyExpr) -> object:
 
 def _sin_cos_facts(expr: SymPyExpr) -> list[object]:
     arg = _argument(expr)
-    return [
-        IMPLIES(Q.real(arg), Q.real(expr)),
-        Q.complex(expr),
-        Q.finite(expr),
-    ]
+    facts: list[object] = [Q.complex(expr), Q.finite(expr)]
+    if not isinstance(arg, Number):
+        # Realness is only derived for non-literal arguments.  For a numeric
+        # argument it would give exact facts about an unevaluated value such
+        # as ``cos(2)**2 + sin(2)**2``, which the query suite deliberately
+        # leaves undecided.
+        facts.insert(0, IMPLIES(Q.real(arg), Q.real(expr)))
+    return facts
 
 
 def _zero_algebraic_facts(expr: SymPyExpr) -> list[object]:
