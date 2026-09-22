@@ -22,10 +22,11 @@ from sympy.core.singleton import S
 from sympy.functions.elementary.complexes import Abs
 from sympy.functions.elementary.exponential import log
 from sympy.logic.boolalg import And, Or
-from sympy.matrices.expressions import MatMul
+from sympy.matrices.expressions import MatMul, MatrixExpr
 
 from reasoning.clauses import AND, EQUIVALENT, IMPLIES, NOT, OR, XOR
 from reasoning.functionfacts import register_function_facts
+from reasoning.matrixfacts import register_matrix_facts
 from reasoning.numberfacts import number_facts
 from reasoning.predicates import Q
 from reasoning.registry import ClassFactRegistry
@@ -310,6 +311,8 @@ def _mul_hermitian_facts(expr: SymPyExpr) -> object:
 
 @class_fact_registry.register(Mul)
 def _mul_parity_facts(expr: SymPyExpr) -> object:
+    if isinstance(expr, MatrixExpr):
+        return True
     integer = _allargs(Q.integer, expr)
     all_odd = _allargs(Q.odd, expr)
     facts = [
@@ -641,6 +644,7 @@ class_fact_registry.multiregister(
     Number, NumberSymbol, ImaginaryUnit, ComplexInfinity)(number_facts)
 
 register_function_facts(class_fact_registry)
+register_matrix_facts(class_fact_registry)
 
 
 __all__ = [
