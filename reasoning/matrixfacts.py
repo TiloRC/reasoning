@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Callable, Iterable
 
 from sympy.core.numbers import Integer, Number
+from sympy.functions.elementary.complexes import conjugate
 from sympy.matrices import MatrixBase
 from sympy.matrices.expressions import (
     BlockDiagMatrix, BlockMatrix, Determinant, DiagMatrix, DiagonalMatrix,
@@ -149,10 +150,37 @@ def _explicit_invertible(expr: SymPyExpr) -> object:
     return determinant != 0
 
 
+def _provably_nonzero(expr: SymPyExpr) -> bool:
+    from sympy.assumptions.ask import Q as SymPyQ
+    from reasoning.satask import satask
+    return satask(SymPyQ.zero(expr)) is False
+
+
+def _hermitian_character(expr: SymPyExpr, negate: bool) -> bool | None:
+    if not _square(expr):
+        return None
+    unknown = False
+    for row in range(expr.rows):
+        for column in range(expr.cols):
+            mirrored = conjugate(expr[column, row])
+            difference = expr[row, column] - (-mirrored if negate else mirrored)
+            if difference == 0:
+                continue
+            if not difference.free_symbols and _provably_nonzero(difference):
+                return False
+            unknown = True
+    return None if unknown else True
+
+
 def _matrixbase_facts(expr: SymPyExpr) -> list[object]:
     facts = _shape_facts(expr)
     if not _square(expr):
         return facts
+    for predicate, negate in ((Q.hermitian, False), (Q.antihermitian, True)):
+        character = _hermitian_character(expr, negate)
+        if character is not None:
+            facts.append(predicate(expr) if character
+                         else NOT(predicate(expr)))
     invertible = _explicit_invertible(expr)
     if invertible is not None:
         facts.append(Q.invertible(expr) if invertible else NOT(Q.invertible(expr)))
@@ -256,6 +284,10 @@ def _matpow_facts(expr: SymPyExpr) -> list[object]:
         for predicate, _scalar in _ELEMENT_PREDICATES:
             facts.append(IMPLIES(
                 AND(integer_nonnegative, predicate(base)), predicate(expr)))
+        facts.append(IMPLIES(
+            AND(Q.integer(exponent), Q.negative(exponent),
+                Q.invertible(base), Q.real_elements(base)),
+            Q.real_elements(expr)))
     facts.append(IMPLIES(Q.positive_definite(base), Q.positive_definite(expr)))
     return facts
 

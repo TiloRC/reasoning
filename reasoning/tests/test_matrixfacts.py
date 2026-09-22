@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 
 import pytest
+from sympy import I, SparseMatrix, Symbol
 from sympy.assumptions.ask import Q
 from sympy.matrices import Matrix
 from sympy.matrices.expressions import (
@@ -170,6 +171,40 @@ def test_trace_and_determinant_positivity() -> None:
     M = MatrixSymbol('M', 4, 4)
     assert satask(Q.positive(Trace(M)), Q.positive_definite(M)) is True
     assert satask(Q.positive(Determinant(M)), Q.positive_definite(M)) is True
+
+
+def test_hermitian_and_antihermitian_facts() -> None:
+    hermitian = Matrix([[2, 2 + I, 4], [2 - I, 3, I], [4, -I, 1]])
+    not_hermitian = Matrix([[2, 2 + I, 4], [2 + I, 3, I], [4, -I, 1]])
+    z = Symbol('z')
+    unknown = Matrix([[2, 2 + I, z], [2 - I, 3, I], [4, -I, 1]])
+    assert satask(Q.hermitian(hermitian)) is True
+    assert satask(Q.hermitian(not_hermitian)) is False
+    assert satask(Q.hermitian(unknown)) is None
+    assert satask(Q.hermitian(
+        SparseMatrix(((25, 15, -5), (15, 18, 0), (-5, 0, 11))))) is True
+    assert satask(Q.hermitian(
+        SparseMatrix(((25, 15, -5), (15, I, 0), (-5, 0, 11))))) is False
+    assert satask(Q.hermitian(
+        SparseMatrix(((25, 15, -5), (15, z, 0), (-5, 0, 11))))) is None
+
+    antihermitian = Matrix([[0, -2 - I, 0], [2 - I, 0, -I], [0, -I, 0]])
+    assert satask(Q.antihermitian(antihermitian)) is True
+    assert satask(Q.antihermitian(antihermitian**2)) is False
+    assert satask(Q.antihermitian(
+        Matrix([[-I, 2 + I, 0], [-2 + I, 0, 2 + I], [0, -2 + I, -I]]))) is True
+    assert satask(Q.antihermitian(
+        Matrix([[0, -2 - I, 0], [z, 0, -I], [0, -I, 0]]))) is None
+
+
+def test_matpow_real_elements_with_negative_integer_exponent() -> None:
+    e = Symbol('e')
+    assert satask(Q.real_elements(X**e),
+                  Q.real_elements(X) & Q.invertible(X)
+                  & Q.integer(e) & Q.negative(e)) is True
+    assert satask(Q.real_elements(X**e), Q.real_elements(X)) is None
+    assert satask(Q.real_elements(X**e),
+                  Q.real_elements(X) & Q.integer(e) & Q.negative(e)) is None
 
 
 def test_matrix_facts_register_local_predicate_formulas() -> None:
