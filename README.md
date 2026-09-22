@@ -77,6 +77,12 @@ To compare answers against the pinned SymPy `satask`, run
 `python -m benchmarks.compare_satask --include-early-return`. Saved original
 modules remain supported with `--baseline-satask` and `--baseline-handlers`.
 
+CI (`.github/workflows/ci.yml`) runs the unit tests, mypy, and the vendored
+known-facts check on Python 3.10 and 3.14, plus the commands above, for every
+pull request. Timing results and the validation progress comparison appear in
+the job summary; CI timings are illustrative and the validation comparison is
+informational.
+
 The benchmark reports warm median conversion, discovery/encoding, query
 encoding, and solving times, plus clause and variable counts. Discovery and fact
 encoding are measured together because facts are encoded as they are produced.
