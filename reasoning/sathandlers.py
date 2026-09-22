@@ -376,8 +376,16 @@ def _pow_real_facts(expr: SymPyExpr) -> object:
     ]
     if not isinstance(base, Exp1):
         facts.append(IMPLIES(
-            Q.imaginary(exp),
+            AND(Q.imaginary(exp), NOT(Q.positive(base))),
             EQUIVALENT(Q.real(expr), Q.imaginary(log(base)))))
+        coefficient = exp.coeff(S.ImaginaryUnit)
+        if coefficient:
+            facts.append(IMPLIES(
+                AND(Q.imaginary(exp), Q.real(base), Q.rational(base),
+                    Q.nonzero(base), NOT(Q.zero(base - 1)),
+                    NOT(Q.zero(base + 1)), Q.rational(coefficient),
+                    Q.nonzero(coefficient)),
+                NOT(Q.real(expr))))
     if isinstance(exp, Rational) and exp.q % 2 == 0:
         facts.append(IMPLIES(
             AND(Q.real(base), Q.real(exp)),
