@@ -4,13 +4,22 @@ Inputs are built and answers checked outside timing. Mutable databases/engines
 are recreated for each call; Solve additionally disables timeit's inner loop
 and warmup so its engine has not already answered the query. See benchmarks/README.md.
 """
+from typing import ClassVar
+
 from reasoning.clauses import assert_formula, compile_formula
 from reasoning.engine import ReasoningEngine
 from reasoning.satask import get_all_relevant_facts, satask
 from reasoning.sympy_adapter import normalize
 
 from ._workloads import (
-    CONSISTENT_NAMES, NAMES, VERSION, answer, answer_code, case, check, sum_case,
+    CONSISTENT_NAMES,
+    NAMES,
+    VERSION,
+    answer,
+    answer_code,
+    case,
+    check,
+    sum_case,
 )
 
 
@@ -23,7 +32,7 @@ def _database(workload):
 
 class Pipeline:
     params = NAMES
-    param_names = ["case"]
+    param_names: ClassVar[list[str]] = ["case"]
     version = VERSION
 
     def setup(self, name):
@@ -40,7 +49,7 @@ class Pipeline:
 
 class Phases:
     params = CONSISTENT_NAMES
-    param_names = ["case"]
+    param_names: ClassVar[list[str]] = ["case"]
     version = VERSION
 
     def setup(self, name):
@@ -67,7 +76,7 @@ class Phases:
 
 class Solve:
     params = CONSISTENT_NAMES
-    param_names = ["case"]
+    param_names: ClassVar[list[str]] = ["case"]
     version = VERSION
     number = 1
     warmup_time = 0
@@ -86,7 +95,7 @@ class Solve:
 class Outcomes:
     """Record actual behavior even when a timing's answer contract fails."""
     params = NAMES
-    param_names = ["case"]
+    param_names: ClassVar[list[str]] = ["case"]
     version = VERSION
 
     def setup(self, name):
@@ -98,8 +107,8 @@ class Outcomes:
 
 
 class SumScaling:
-    params = [10, 20, 40, 80]
-    param_names = ["arity"]
+    params: ClassVar[list[int]] = [10, 20, 40, 80]
+    param_names: ClassVar[list[str]] = ["arity"]
     version = VERSION
 
     def setup(self, arity):
