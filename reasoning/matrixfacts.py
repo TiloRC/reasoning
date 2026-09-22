@@ -56,8 +56,12 @@ _IDENTITY_PREDICATES = (
 )
 
 _ZERO_PREDICATES = (
-    Q.square, Q.symmetric, Q.diagonal, Q.upper_triangular,
-    Q.lower_triangular, Q.triangular, Q.integer_elements,
+    Q.integer_elements,
+)
+
+_ZERO_SQUARE_PREDICATES = (
+    Q.symmetric, Q.diagonal, Q.upper_triangular, Q.lower_triangular,
+    Q.triangular,
 )
 
 _ZERO_NEGATED = (
@@ -67,6 +71,17 @@ _ZERO_NEGATED = (
 _TRANSFER_PREDICATES = (
     Q.symmetric, Q.invertible, Q.fullrank, Q.unitary, Q.orthogonal,
     Q.diagonal, Q.positive_definite,
+)
+
+# A principal submatrix inherits the parent's symmetry, diagonal shape and
+# positive definiteness, but none of the predicates that need the full size:
+# [[0]] is the leading 1x1 slice of the full-rank, invertible, unitary and
+# orthogonal [[0, 1], [1, 0]], so ``fullrank``, ``invertible``, ``unitary``
+# and ``orthogonal`` are deliberately absent.  Keeping ``invertible`` here
+# would also re-derive ``fullrank`` for the slice through the ``invertible ->
+# fullrank`` known fact.
+_SLICE_TRANSFER_PREDICATES = (
+    Q.symmetric, Q.diagonal, Q.positive_definite,
 )
 
 
@@ -124,10 +139,12 @@ def _identity_facts(expr: SymPyExpr) -> list[object]:
 
 
 def _zeromatrix_facts(expr: SymPyExpr) -> list[object]:
-    return (
-        [predicate(expr) for predicate in _ZERO_PREDICATES]
-        + [NOT(predicate(expr)) for predicate in _ZERO_NEGATED]
-    )
+    facts = _shape_facts(expr)
+    facts.extend(predicate(expr) for predicate in _ZERO_PREDICATES)
+    if _square(expr):
+        facts.extend(predicate(expr) for predicate in _ZERO_SQUARE_PREDICATES)
+    facts.extend(NOT(predicate(expr)) for predicate in _ZERO_NEGATED)
+    return facts
 
 
 def _onematrix_facts(expr: SymPyExpr) -> list[object]:
@@ -194,8 +211,11 @@ def _matadd_facts(expr: SymPyExpr) -> list[object]:
     for predicate in (Q.symmetric, Q.diagonal, Q.upper_triangular,
                       Q.lower_triangular, Q.positive_definite):
         facts.extend(_closed_positive(predicate, expr))
+    # Summands can cancel imaginary or fractional parts (diag(1/2, 1) +
+    # diag(1/2, 1) is integral, i*I + (-i)*I is zero), so drop only the
+    # negative closure: the positive direction stays.
     for predicate, _scalar in _ELEMENT_PREDICATES:
-        facts.extend(_closed(predicate, expr))
+        facts.extend(_closed_positive(predicate, expr))
     return facts
 
 
@@ -246,12 +266,14 @@ def _matmul_facts(expr: SymPyExpr) -> list[object]:
         facts.append(Q.diagonal(expr))
     else:
         facts.append(IMPLIES(_all(Q.diagonal, matrices), Q.diagonal(expr)))
+    # Element predicates are only closed in the positive direction: products
+    # can cancel imaginary or fractional parts (diag(1/2, 1)*diag(2, 1) is
+    # integral, i*I times [[0, i], [-i, 0]] is real), so a factor that fails
+    # the predicate does not make the product fail it.
     for predicate, scalar_predicate in _ELEMENT_PREDICATES:
         terms = ([scalar_predicate(arg) for arg in scalars]
                  + [predicate(arg) for arg in matrices])
         facts.append(IMPLIES(AND(*terms), predicate(expr)))
-        facts.append(IMPLIES(
-            OR(*(NOT(term) for term in terms)), NOT(predicate(expr))))
     return facts
 
 
@@ -271,7 +293,9 @@ def _matpow_facts(expr: SymPyExpr) -> list[object]:
                 AND(Q.invertible(base), predicate(base)), predicate(expr)))
         for predicate in (Q.orthogonal, Q.unitary):
             facts.append(IMPLIES(predicate(base), predicate(expr)))
-        for predicate, _scalar in _ELEMENT_PREDICATES:
+        # Inverses preserve realness and complexness, but not integrality:
+        # diag(2, 1)**-2 == diag(1/4, 1).
+        for predicate in (Q.real_elements, Q.complex_elements):
             facts.append(IMPLIES(
                 AND(Q.invertible(base), predicate(base)), predicate(expr)))
     else:
@@ -324,8 +348,13 @@ def _matrixslice_facts(expr: SymPyExpr) -> list[object]:
     if _empty_or_1x1(expr):
         facts.append(Q.diagonal(expr))
     if expr.on_diag:
-        for predicate in _TRANSFER_PREDICATES + (Q.upper_triangular,
-                                                 Q.lower_triangular):
+        # A slice covering the whole parent is the parent itself, so it keeps
+        # the rank-like predicates as well; a proper principal submatrix only
+        # preserves the size-independent ones.
+        transfer = (_TRANSFER_PREDICATES
+                    if expr.shape == expr.parent.shape
+                    else _SLICE_TRANSFER_PREDICATES)
+        for predicate in transfer + (Q.upper_triangular, Q.lower_triangular):
             facts.append(IMPLIES(predicate(expr.parent), predicate(expr)))
     for predicate, _scalar in _ELEMENT_PREDICATES:
         facts.append(IMPLIES(predicate(expr.parent), predicate(expr)))
@@ -387,8 +416,11 @@ def _trace_facts(expr: SymPyExpr) -> list[object]:
 
 
 def _hadamard_facts(expr: SymPyExpr) -> list[object]:
+    # Entrywise products of non-integer matrices can still be integral
+    # (diag(1/2, 1) hadamard diag(2, 1) is the identity), so only the
+    # positive closure is sound.
     return [fact for predicate, _scalar in _ELEMENT_PREDICATES
-            for fact in _closed(predicate, expr)]
+            for fact in _closed_positive(predicate, expr)]
 
 
 def _factorization_facts(expr: SymPyExpr) -> list[object]:

@@ -256,18 +256,6 @@ _KNOWN_OPEN_REGRESSIONS = {
         "infinite**zero is 1 but the Pow closure facts claim otherwise",
     "test_unevaluated_pow_zero_exponent_does_not_raise":
         "Pow closure contradicts the zero-exponent value 1",
-    "test_zeromatrix_shape_is_not_always_square":
-        "ZeroMatrix reports square for non-square shapes",
-    "test_matpow_negative_exponent_does_not_preserve_integer_elements":
-        "MatPow integer_elements is not guarded for negative exponents",
-    "test_matmul_element_predicates_are_not_closed_under_negation":
-        "MatMul element predicates are closed under negation",
-    "test_matadd_element_predicates_are_not_closed_under_negation":
-        "MatAdd element predicates are closed under negation",
-    "test_hadamard_element_predicates_are_not_closed_under_negation":
-        "HadamardProduct element predicates are closed under negation",
-    "test_matrix_slice_does_not_transfer_fullrank":
-        "MatrixSlice inherits fullrank from its parent",
     "test_zero_base_pow_values_are_not_answered_false":
         "0**oo, 0**(1+I) and oo**-1 are zero but answered not-zero",
     "test_narrow_guard_blind_spots_for_mul_and_pow_parity":

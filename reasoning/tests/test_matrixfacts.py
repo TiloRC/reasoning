@@ -147,10 +147,13 @@ def test_slice_and_block_facts() -> None:
     M = MatrixSymbol('M', 4, 4)
     B = M[1:3, 1:3]
     C = M[0:3, 1:3]
+    # A principal submatrix only inherits the predicates that do not need the
+    # full size.  [[0]] is the leading 1x1 slice of the full-rank, invertible,
+    # orthogonal [[0, 1], [1, 0]], so rank-like predicates stay undecided.
     assert satask(Q.symmetric(B), Q.symmetric(M)) is True
-    assert satask(Q.invertible(B), Q.invertible(M)) is True
+    assert satask(Q.invertible(B), Q.invertible(M)) is None
     assert satask(Q.diagonal(B), Q.diagonal(M)) is True
-    assert satask(Q.orthogonal(B), Q.orthogonal(M)) is True
+    assert satask(Q.orthogonal(B), Q.orthogonal(M)) is None
     assert satask(Q.upper_triangular(B), Q.upper_triangular(M)) is True
     assert satask(Q.symmetric(C), Q.symmetric(M)) is None
     assert satask(Q.invertible(C), Q.invertible(M)) is None
