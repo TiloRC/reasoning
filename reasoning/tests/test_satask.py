@@ -41,7 +41,10 @@ def test_satask() -> None:
     assert satask(Q.positive(x), Q.zero(x)) is False
     assert satask(Q.real(x), Q.zero(x)) is True
     assert satask(Q.zero(x), Q.zero(x*y)) is None
-    assert satask(Q.zero(x*y), Q.zero(x))
+    # oo*0 is nan, so the product is only known to be zero when the other
+    # factor is finite (or zero).
+    assert satask(Q.zero(x*y), Q.zero(x)) is None
+    assert satask(Q.zero(x*y), Q.zero(x) & Q.finite(y)) is True
 
 
 def test_zero() -> None:
@@ -52,9 +55,12 @@ def test_zero() -> None:
 
     """
     assert satask(Q.zero(x) | Q.zero(y), Q.zero(x*y)) is True
-    assert satask(Q.zero(x*y), Q.zero(x) | Q.zero(y)) is True
+    assert satask(Q.zero(x*y), Q.zero(x) | Q.zero(y)) is None
+    assert satask(Q.zero(x*y), (Q.zero(x) | Q.zero(y)) & Q.finite(x)
+                  & Q.finite(y)) is True
 
-    assert satask(Implies(Q.zero(x), Q.zero(x*y))) is True
+    assert satask(Implies(Q.zero(x), Q.zero(x*y))) is None
+    assert satask(Implies(Q.zero(x), Q.zero(x*y)), Q.finite(y)) is True
 
     # This one in particular requires computing the fixed-point of the
     # relevant facts, because going from Q.nonzero(x*y) -> ~Q.zero(x*y) and
@@ -84,7 +90,11 @@ def test_zero_pow() -> None:
     assert satask(Q.zero(x**y), Q.zero(x) & Q.positive(y)) is True
     assert satask(Q.zero(x**y), Q.nonzero(x) & Q.zero(y)) is False
 
-    assert satask(Q.zero(x), Q.zero(x**y)) is True
+    # (1/2)**oo == 0 and 0**oo == 0, so a zero power only forces a zero base
+    # for a finite positive exponent.
+    assert satask(Q.zero(x), Q.zero(x**y)) is None
+    assert satask(Q.zero(x), Q.zero(x**y) & Q.positive(y)
+                  & Q.finite(y)) is True
 
     assert satask(Q.zero(x**y), Q.zero(x)) is None
 
@@ -251,8 +261,13 @@ def test_integer() -> None:
 
 
 def test_abs() -> None:
-    assert satask(Q.nonnegative(abs(x))) is True
-    assert satask(Q.positive(abs(x)), ~Q.zero(x)) is True
+    # Abs(oo) == oo is not a finite nonnegative number.
+    assert satask(Q.nonnegative(abs(x))) is None
+    assert satask(Q.nonnegative(abs(x)), Q.finite(x)) is True
+    # Abs(oo) == oo is not positive in SymPy's finite-positive sense.
+    assert satask(Q.positive(abs(x)), ~Q.zero(x)) is None
+    assert satask(Q.positive(abs(x)),
+                  ~Q.zero(x) & Q.finite(x)) is True
     assert satask(Q.zero(x), ~Q.zero(abs(x))) is False
     assert satask(Q.zero(x), Q.zero(abs(x))) is True
     assert satask(Q.nonzero(x), ~Q.zero(abs(x))) is None # x could be complex
@@ -342,11 +357,12 @@ def test_pow_pos_neg() -> None:
     assert satask(Q.negative(x**3), Q.nonpositive(x)) is None
     assert satask(Q.real(x**3), Q.nonpositive(x)) is True
 
-    # If x is zero, x**negative is not real.
+    # If x is zero, x**negative is not real; for x negative it is positive,
+    # so x**-2 is never nonpositive either way.
     assert satask(Q.nonnegative(x**-2), Q.nonpositive(x)) is None
-    assert satask(Q.nonpositive(x**-2), Q.nonpositive(x)) is None
+    assert satask(Q.nonpositive(x**-2), Q.nonpositive(x)) is False
     assert satask(Q.positive(x**-2), Q.nonpositive(x)) is None
-    assert satask(Q.negative(x**-2), Q.nonpositive(x)) is None
+    assert satask(Q.negative(x**-2), Q.nonpositive(x)) is False
     assert satask(Q.real(x**-2), Q.nonpositive(x)) is None
 
     # We could deduce things for negative powers if x is nonzero, but it
@@ -387,10 +403,16 @@ def test_get_relevant_clsfacts() -> None:
     decoded = {frozenset((facts.symbols[abs(lit)], lit < 0)
                          for lit in clause) for clause in facts.data}
     assert decoded == \
-        {frozenset({(LocalQ.nonnegative(Abs(x*y)), False)}),
+        {frozenset({(LocalQ.extended_nonnegative(Abs(x*y)), False)}),
+         frozenset({(LocalQ.nonnegative(Abs(x*y)), False),
+                    (LocalQ.finite(x*y), True)}),
+         frozenset({(LocalQ.complex(Abs(x*y)), False),
+                    (LocalQ.finite(x*y), True)}),
          frozenset({(LocalQ.even(Abs(x*y)), False), (LocalQ.even(x*y), True)}),
          frozenset({(LocalQ.integer(Abs(x*y)), False), (LocalQ.integer(x*y), True)}),
          frozenset({(LocalQ.odd(Abs(x*y)), False), (LocalQ.odd(x*y), True)}),
+         frozenset({(LocalQ.positive(Abs(x*y)), False), (LocalQ.nonzero(x*y), True)}),
+         frozenset({(LocalQ.nonzero(Abs(x*y)), False), (LocalQ.nonzero(x*y), True)}),
          frozenset({(LocalQ.zero(Abs(x*y)), False), (LocalQ.zero(x*y), True)}),
          frozenset({(LocalQ.zero(Abs(x*y)), True), (LocalQ.zero(x*y), False)})}
 
@@ -454,7 +476,7 @@ def test_python_boolean_constants_and_zero_iterations() -> None:
     raises(ValueError, lambda: satask(True, False))
     raises(ValueError, lambda: satask(False, False, early_return=True))
     assert satask(Q.nonnegative(Abs(x)), iterations=0) is None
-    assert satask(Q.nonnegative(Abs(x)), iterations=1) is True
+    assert satask(Q.nonnegative(Abs(x)), Q.finite(x), iterations=1) is True
     assert satask(Q.real(x), Q.positive(x), iterations=0) is True
     raises(ValueError, lambda: satask(Q.real(x), iterations=-1))
 
