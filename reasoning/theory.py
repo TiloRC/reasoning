@@ -1,7 +1,7 @@
 """The interface between the propositional solver and a theory solver."""
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Iterable, Protocol
 
 
 class TheorySolver(Protocol):
@@ -15,8 +15,10 @@ class TheorySolver(Protocol):
     assignment.  A conflict clause must be non-empty.
 
     The protocol matches the four-method interface proposed for SymPy's
-    ``dpll2.SATSolver``; notably it has no theory propagation, so the theory
-    only makes the search prune inconsistent total assignments.
+    ``dpll2.SATSolver``; notably it has no theory propagation, so a theory
+    that only implements these methods can only prune inconsistent total
+    assignments.  A theory may additionally implement :class:`PropagatingTheory`
+    to prune inconsistent partial assignments.
     """
 
     def assert_lit(self, literal: int) -> tuple[bool, list[int]] | None:
@@ -45,4 +47,23 @@ class TheorySolver(Protocol):
         ...
 
 
-__all__ = ["TheorySolver"]
+class PropagatingTheory(TheorySolver, Protocol):
+    """A theory that can also propagate literals into the SAT solver.
+
+    ``propagate`` is called from ``SATSolver._simplify`` after unit
+    propagation.  Each yielded pair is a literal the theory entails under the
+    current assignment together with a non-empty *explanation clause* (when
+    the implication is unconditional the explanation may be empty): the
+    clause is entailed by the theory and is satisfied by the literal, so the
+    solver can add it and assign the literal.  Iterator results are computed
+    against the assignment as it was when ``propagate`` was called; literal
+    assignments made by the solver afterwards are reported back through
+    ``assert_lit``.
+    """
+
+    def propagate(self) -> Iterable[tuple[int, list[int]]]:
+        """Yield ``(literal, explanation_clause)`` pairs the theory entails."""
+        ...
+
+
+__all__ = ["PropagatingTheory", "TheorySolver"]

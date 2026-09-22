@@ -659,6 +659,34 @@ class SATSolver:
                 return cast("list[int]", result[1])
         return None
 
+    def _theory_propagate(self) -> bool:
+        """Propagate literals entailed by the registered theories.
+
+        A theory may implement ``propagate()``, yielding ``(literal,
+        explanation)`` pairs.  The explanation is a clause entailed by the
+        theory that is satisfied by the literal; adding it keeps the
+        implication valid after backtracking, and the literal itself is
+        queued for unit propagation.
+        """
+        if self.is_unsatisfied or not self.theory_solvers:
+            return False
+        changed = False
+        for theory in self.theory_solvers:
+            propagate = getattr(theory, "propagate", None)
+            if propagate is None:
+                continue
+            for literal, explanation in propagate():
+                if literal in self.var_settings:
+                    continue
+                self._simple_add_learned_clause([literal, *explanation])
+                if -literal in self.var_settings:
+                    self.is_unsatisfied = True
+                    self._unit_prop_queue = []
+                    return changed
+                self._unit_prop_queue.append(literal)
+                changed = True
+        return changed
+
     def _assign_literal(self, lit: int) -> list[int] | None:
         """Make a literal assignment.
 
@@ -806,6 +834,7 @@ class SATSolver:
             changed = False
             changed |= self._unit_prop()
             changed |= self._pure_literal()
+            changed |= self._theory_propagate()
 
     def _unit_prop(self) -> bool:
         """Perform unit propagation on the current theory."""
