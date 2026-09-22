@@ -42,8 +42,8 @@ SymPy-facing modules (need the `sympy` extra):
   formulas and instantiate the known-fact templates.
 - `sathandlers.py`, `numberfacts.py`, and `sympy_types.py` inspect SymPy
   expression classes and values.
-- `lra_adapter.py` and `unary_adapter.py` map SymPy atoms to the optional
-  theory solvers.
+- `lra_adapter.py` and `unary_adapter.py` map SymPy atoms to the theory
+  solvers (the unary known-fact theory is enabled by default; LRA is opt-in).
 - `benchmarks/`, `validation/`, and `tools/` are development-facing and may
   import SymPy.
 

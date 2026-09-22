@@ -130,7 +130,7 @@ only adds a file, and every imported module exists on `main`).
 | `pytest validation/test_query.py validation/test_matrices.py -q` | 40 passed, 54 failed, 8 xfailed, 2 xpassed | same outcomes, 54.12 s |
 | `benchmarks.satask --repeat 15` totals (ms) | 0.401 / 2.796 / 7.230 / 0.220 / 0.323 | 0.423 / 2.827 / 7.549 / 0.228 / 0.329 |
 | clauses / variables, same cases | 82/31, 456/159, 1161/367, 26/17, 83/31 | identical |
-| `benchmarks.satask --repeat 10 --unary` totals (ms) | — (baseline report: 0.119 / 1.998 / 5.247 / 0.127 / 0.094) | 0.131 / 2.021 / 5.293 / 0.127 / 0.099 |
+| `benchmarks.satask --repeat 10` (unary; now the default) totals (ms) | — (baseline report: 0.119 / 1.998 / 5.247 / 0.127 / 0.094) | 0.131 / 2.021 / 5.293 / 0.127 / 0.099 |
 | unary clauses / variables (sum10) | 270 / 92 | 270 / 92 |
 
 The default benchmark deltas are run-to-run noise; counts are byte-identical.

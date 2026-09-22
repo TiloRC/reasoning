@@ -1,9 +1,13 @@
 # Agent report: unary known-fact theory for the reasoning core
 
 - **Date:** 2026-09-22
-- **Status:** prototype implemented and measured on branch
-  `investigate/unary-known-facts` (nothing committed); no behavior change
-  unless `satask(..., use_unary_theory=True)` is passed
+- **Update (2026-09-22):** the theory is now enabled by default in `satask`,
+  per PR review; `use_unary_theory=False` and `benchmarks.satask --no-unary`
+  select the materialized encoding instead. The two-encoding measurements
+  below are unchanged by which encoding is the default.
+- **Status:** implemented on `feature/unary-known-facts` (PR #4) and enabled
+  by default; the eager known-fact path stays as the escape hatch and as the
+  A/B control for the differential
 - **Scope:** replacing the per-subject known-fact materialization in
   `SympyAdapter.add_known_facts` with a forward-chaining-style unary theory in
   the style of sympy/sympy#27835 (`facts2.py` / `forward_chaining_theory.py`),
@@ -13,10 +17,10 @@
   four-method `TheorySolver` protocol
 - **Stale after:** changes to `reasoning/unary_theory.py`,
   `reasoning/unary_adapter.py`, `reasoning/solver.py`,
-  `reasoning/sympy_adapter.py` (`_known_template`), the `_known_template`
-  selection in `add_known_facts`, or the pinned SymPy's
-  `ask_generated.py`
-- **TL;DR:** yes, it helps. The per-subject known-fact template disappears
+  `reasoning/sympy_adapter.py` (`select_known_template`),
+  `reasoning/knownfacts.py`, or the pinned SymPy
+- **TL;DR:** yes, it helps, and it is now the default `satask` encoding. The
+  per-subject known-fact template disappears
   from the clause database (sum10: 1161→270 clauses, 367→92 variables; 891
   known-fact clauses removed) and the answers are unchanged (2500-query
   randomized differential: 0 disagreements; pinned validation suites: same
@@ -38,17 +42,18 @@ Three new modules, an optional protocol extension, and wiring:
 |---|---|
 | `reasoning/unary_theory.py` | SymPy-free theory: `CompiledTemplate` (CNF over predicate indices → independent components + model bitmasks), `UnaryTheory` (`assert_lit`/`check`/`push_level`/`pop_level` + `propagate`) |
 | `reasoning/unary_adapter.py` | SymPy-facing: rebuilds `add_known_facts`'s subject/kind selection, compiles the template once per `(numbers, matrices)` pair, maps materialized predicate atoms to solver variables |
-| `reasoning/tests/test_unary_theory.py` | 23 tests: template compilation, propagation cores, level undo, solver/engine integration, default-vs-theory answer parity, clause-count pin |
+| `reasoning/tests/test_unary_theory.py` | Adapter, propagation, level-undo, solver/engine integration, eager-vs-default answer parity, mapping parity, and clause-count tests; the synthetic template/solver tests live in `test_unary_core.py` |
 | `reasoning/theory.py` | new `PropagatingTheory` protocol (optional `propagate()`); `TheorySolver` unchanged |
 | `reasoning/solver.py` | `_theory_propagate()` called from `_simplify` (solver.py:662, 837) |
-| `reasoning/satask.py` | `use_unary_theory: bool = False` (satask.py:32); `get_facts_and_subjects` (satask.py:118) returns the exact `subjects | visited` set `add_known_facts` receives |
-| `benchmarks/satask.py` | `--unary` flag and a `theory_build_ms` phase |
+| `reasoning/satask.py` | `use_unary_theory: bool = True` (satask.py:32); `get_facts_and_subjects` (satask.py:118) returns the exact `subjects | visited` set `add_known_facts` receives |
+| `benchmarks/satask.py` | `--no-unary` flag (eager encoding) and a `theory_build_ms` phase |
 
-The default path is untouched: no theory is built, `_known_template` and
-`add_known_facts` are still used, and the only core change is the no-op
-`_theory_propagate()` call when no theory is registered. The pinned
-`benchmarks.satask` baseline is within noise of the pre-change run
-(7.08 ms vs 7.17 ms for sum10).
+`satask` builds the theory by default; `use_known_facts=False` still disables
+known facts entirely, and `use_unary_theory=False` selects the eager
+`add_known_facts` encoding. `get_all_relevant_facts` remains eager because a
+theory cannot live in a bare `ClauseDB`. The only core change to the solver
+is `_theory_propagate()` in `_simplify`, which no-ops when no propagating
+theory is registered.
 
 ## 2. How theory atoms appear in the solver (Q1, part 1)
 
@@ -118,7 +123,7 @@ bitmask excludes them all is forced, and its explanation is a deletion-
 minimized core of the assigned literals. Propagating made every benchmark
 case faster than baseline:
 
-| case | default total | unary total (`--unary`) | ratio | clauses | vars |
+| case | eager total (`--no-unary`) | unary total (default) | ratio | clauses | vars |
 |---|---:|---:|---:|---:|---:|
 | simple | 0.379 ms | 0.119 ms | 3.19x | 82→1 | 31→2 |
 | nested | 2.736 ms | 1.998 ms | 1.37x | 456→132 | 159→73 |
@@ -171,10 +176,12 @@ enumeration ever becomes infeasible (see risks).
 
 ## 5. Behavior-preservation checklist (Q3)
 
-The full unit suite was also run with `use_unary_theory` forced on for every
-internal call (one-line local default flip, reverted afterwards; the committed
-default is `False`): **158 passed, 1 xfailed**, identical to the default run.
-The named tests were exercised in that run:
+The full unit suite was run with `use_unary_theory` forced on for every
+internal call before it became the default: **158 passed, 1 xfailed**,
+identical to the eager run. With the theory as the committed default and the
+boundary-work tests added, the suite is **166 passed, 1 xfailed** and mypy
+reports no issues in 33 source files. The named tests were exercised in both
+runs:
 
 - `test_disconnected_assumptions_still_checked` (test_satask.py:462): the
   `~Q.positive(y) & Q.positive(y)` contradiction becomes an empty clause in
@@ -212,8 +219,9 @@ pinned SymPy):
 
 | mode | outcome | wall |
 |---|---|---|
-| default | 40 passed, 54 failed, 8 xfailed, 2 xpassed | 54.01 s |
-| unary forced | 40 passed, 54 failed, 8 xfailed, 2 xpassed | 53.30 s |
+| unary (default) | 40 passed, 54 failed, 8 xfailed, 2 xpassed | 57.9 s |
+| unary forced (pre-flip) | 40 passed, 54 failed, 8 xfailed, 2 xpassed | 53.3 s |
+| eager (pre-flip) | 40 passed, 54 failed, 8 xfailed, 2 xpassed | 54.0 s |
 
 No test changed outcome; wall time is within noise.
 
@@ -226,17 +234,17 @@ theory) that did not reproduce warm (e.g. `Q.integer(x)`: 0.13 ms theory vs
 
 ## 6. Risks and open items
 
-1. **Template-selection duplication.** `unary_adapter.py` re-implements the
-   `numbers`/`matrices` logic and the subject set comes from a new discovery
-   helper. Any future change to `add_known_facts`/`discover_facts` can drift.
-   Factor `_select_template` into `sympy_adapter` or keep the differential
-   tests mandatory if the two paths are expected to agree.
+1. **Template-selection duplication (resolved).** `select_known_template` is
+   now shared by both adapters, and
+   `test_theory_mapping_matches_materialized_encoding` fails if a materialized
+   template predicate goes unmapped, so the two paths cannot drift silently.
 2. **Model-mask growth.** Compilation enumerates models per connected
    component: 64 and 400 today. If SymPy ever links the number and matrix
    predicates, the product (25600 models) would be enumerated but is still
    only ~150 KB of masks; if new facts explode the number component's model
-   count, compile time and memory grow. The `_compiled` LRU (maxsize 3) pays
-   ~5 ms once per process for the current templates.
+   count, compile time and memory grow. The `_compiled` LRU (maxsize 4, keyed
+   on the selected predicate/clause data) pays ~5 ms once per process for the
+   current templates.
 3. **Learned clauses during propagation.** Every implied literal adds its
    explanation clause to the solver and bumps VSIDS scores via
    `_simple_add_learned_clause`, even under `clause_learning='none'`. Only
@@ -248,12 +256,12 @@ theory) that did not reproduce warm (e.g. `Q.integer(x)`: 0.13 ms theory vs
    only a typing aid. A theory with an incompatible `propagate` would fail at
    runtime with a confusing error.
 5. **Check-only is order-sensitive and slower in the worst case** (3.4–18.5 ms
-   across processes before sorting; 4.7–5.4 ms after). Keep propagation on for
-   any future opt-in switch.
-6. **Solver core changed on the default path.** The hook is inert without a
-   propagating theory and the suite/benchmarks show no regression, but it is
-   still a change to `_simplify` that upstream-style review should look at
-   (sentinels, occurrence counts, clause growth).
+   across processes before sorting; 4.7–5.4 ms after). The default path always
+   propagates; `enable_propagation=False` is a test-only comparison knob.
+6. **The solver hook is now live by default.** `_simplify` calls
+   `_theory_propagate()` and the registered unary theory adds explanation
+   clauses, so review should look at sentinels, occurrence counts, and clause
+   growth on that path rather than only at the inert no-op.
 7. **Interaction coverage.** LRA+unary was smoke-tested only
    (`use_lra_theory=True, use_unary_theory=True` answers correctly on
    `Q.real(x)|Q.positive(x)` and `Q.gt`); the `add-mul-pow-and-function-facts`
@@ -266,25 +274,24 @@ theory) that did not reproduce warm (e.g. `Q.integer(x)`: 0.13 ms theory vs
 
 ## 7. Recommendation
 
-1. **Do not land a check-only unary theory as a default-path optimization.**
-   It is sound and behavior-preserving, but it can be slower than the clauses
-   it replaces and its performance is order-sensitive.
-2. **If the theory is pursued, land it as an opt-in mode (as prototyped) with
-   the `propagate` hook.** The hook is additive, theories without
-   `propagate()` are unaffected (LRA, the toy `Exclude` theory), the unit
-   suites and the 2500-query differential are clean, and the clause/variable
-   reduction is real: sum10 is 270 clauses / 92 variables instead of 1161 /
-   367, and 1.35x faster; the other four benchmark cases are 1.37–3.45x
-   faster. The validation suites keep the same outcomes.
-3. **Keep the default `use_unary_theory=False` until there is an explicit
-   policy decision**, mirroring the LRA prototype. The natural next experiment
-   is to force it on in the SymPy-side harness the same way the LRA report
-   suggests, once the handler branch is merged.
-4. **Before enabling by default**, remove the template-selection duplication,
-   decide the clause-growth policy for propagation explanations, and rerun
-   the differential on the merged handler branch.
+1. **The check-only theory must not become the default.** It is sound and
+   behavior-preserving, but it can be slower than the clauses it replaces and
+   its performance is order-sensitive; the committed default propagates.
+2. **The propagating theory is the default encoding as of this PR.** The hook
+   is additive, theories without `propagate()` are unaffected (LRA, the toy
+   `Exclude` theory), the unit suites and the 2500-query differential are
+   clean, and the clause/variable reduction is real: sum10 is 270 clauses /
+   92 variables instead of 1161 / 367 and runs 1.3–3.5x faster across the
+   benchmark cases. The validation suites keep the same outcomes.
+3. **Keep the eager path as the control and escape hatch.**
+   `use_unary_theory=False` and `benchmarks.satask --no-unary` select it, so
+   the differential stays runnable and a regression can be reverted per call.
+4. **Follow-ups now that it is the default:** decide the clause-growth policy
+   for propagation explanations (risk 3), cover LRA+unary and the richer
+   handler branch, and decide whether `get_all_relevant_facts` should expose
+   the theory path too.
 
-## 8. Files changed in the worktree (not committed)
+## 8. Files changed on the branch (PR #4, later rebased onto `main`)
 
 - New: `reasoning/unary_theory.py`, `reasoning/unary_adapter.py`,
   `reasoning/tests/test_unary_theory.py`
