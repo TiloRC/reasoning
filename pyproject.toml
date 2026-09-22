@@ -23,7 +23,12 @@ reasoning = ["LICENSE.sympy"]
 include = ["reasoning*"]
 
 [tool.pytest.ini_options]
-testpaths = ["reasoning/tests", "validation"]
+testpaths = ["reasoning/tests", "validation", "tests"]
+markers = [
+    "slow: slow upstream SymPy test",
+    "tooslow: very slow upstream SymPy test",
+    "nocache_fail: upstream test requiring SymPy caching",
+]
 
 [tool.mypy]
 python_version = "3.10"

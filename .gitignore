@@ -8,3 +8,6 @@ __pycache__/
 env/
 results/
 html/
+
+# Container benchmark artifacts
+bench-results/

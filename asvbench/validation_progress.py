@@ -13,14 +13,14 @@ separate pytest subprocesses.  The benchmarks report:
   backend.  Control series: it measures the pinned SymPy suite against
   itself, so it should stay near-flat at a high count; movement there
   reflects a changed environment or pin, not progress in this project.
-- ``track_suite_wall_time``: whole-suite wall-clock seconds per backend.
+- ``track_validation_wall_time``: whole-suite wall-clock seconds per backend.
 
-A full run costs ~50 s per backend, so the work happens once per commit in
-``setup_cache``; asv pickles its return value and passes it as the first
-argument to every benchmark function.  Counts and wall times are reported
-as ``track_*`` benchmarks (single recorded values) rather than ``time_*``
-ones, which auto-repeat and keep the minimum -- minutes of wasted
-subprocess runs for a ~50 s suite.
+The expensive upstream generated-facts control is excluded. Counts therefore
+start a new series with one fewer test per backend than the original 104-test
+collection. Per-test outcomes can be saved with the harness's ``--output`` flag.
+Whole-suite time measures validation execution cost, not engine performance:
+fixing an early assertion makes the same test perform more work. Use pipeline.py
+for fixed-workload performance measurements.
 """
 from __future__ import annotations
 
@@ -42,14 +42,14 @@ def setup_cache() -> Runs:
     """Run both backends once per commit; cache outcomes and wall time."""
     runs = {}
     for backend in BACKENDS:
-        outcomes, _, _, wall = run_backend(backend, list(DEFAULT_SUITES), [])
+        outcomes, _, _, wall = run_backend(backend, list(DEFAULT_SUITES), [],
+                                            include_controls=False)
         runs[backend] = (outcomes, wall)
     return runs
 
 
-# Two ~50 s pytest subprocesses per commit; asv kills setup_cache after the
-# 60 s default benchmark timeout otherwise.
-setup_cache.timeout = 900.0
+# Allow for slow hosts without retaining the old full-control timeout.
+setup_cache.timeout = 120.0
 
 
 def _count_passed(runs: Runs, backend: str,
@@ -75,7 +75,7 @@ def track_passed_sympy(runs: Runs, suite_file: str) -> int:
     return _count_passed(runs, "sympy", suite_file)
 
 
-def track_suite_wall_time(runs: Runs, backend: str) -> float:
+def track_validation_wall_time(runs: Runs, backend: str) -> float:
     """Wall-clock seconds for one full pytest run of both suites."""
     return runs[backend][1]
 
@@ -86,5 +86,10 @@ track_passed.unit = "tests"
 track_passed_sympy.params = [SUITE_NAMES]
 track_passed_sympy.unit = "tests"
 
-track_suite_wall_time.params = [list(BACKENDS)]
-track_suite_wall_time.unit = "s"
+track_validation_wall_time.params = [list(BACKENDS)]
+track_validation_wall_time.unit = "s"
+
+# The control exclusion changes the population, not solver correctness.
+track_passed.version = "2-exclude-generated-facts-control"
+track_passed_total.version = "2-exclude-generated-facts-control"
+track_passed_sympy.version = "2-exclude-generated-facts-control"

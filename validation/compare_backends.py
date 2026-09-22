@@ -9,7 +9,10 @@ SymPy's pinned upstream suites with ``ask`` and ``_ask_recursive`` rebound to
 this checkout's ``satask``.  The SymPy backend runs temporary re-exports of
 the same upstream suites with those names rebound to
 ``sympy.assumptions.satask``.  Each backend runs in its own pytest subprocess;
-per-test outcomes, timings, and failure texts are compared.  An outcome where
+per-test outcomes, timings, and failure texts are compared. The expensive
+upstream generated-facts control is excluded unless ``--include-controls`` is
+specified. Timings describe validation execution cost, not solver performance;
+tests execute more assertions as correctness improves.  An outcome where
 reasoning passes and SymPy does not is an improvement, and tests both backends
 fail with different failure content are expected to diverge as reasoning gets
 further: both are reported for inspection but do not affect the exit status.
@@ -19,6 +22,7 @@ The exit status is 1 only when the backends otherwise disagree on an outcome
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -42,6 +46,9 @@ _suite._ask_recursive = _satask
 
 from {SYMPY_PACKAGE}.{{module}} import *  # noqa: E402,F401,F403
 """
+# Backend-independent, expensive check of upstream generated data.
+CONTROL_TESTS = ("test_query::test_known_facts_consistent",)
+
 REASONING_BINDING = "from reasoning.satask import satask"
 
 OUTCOME = re.compile(r"^(PASSED|FAILED|ERROR|XFAIL|XPASS|SKIPPED)\s+(\S+)", re.MULTILINE)
@@ -86,7 +93,10 @@ def run_pytest(suites: list[Path], report: Path, pytest_args: list[str]) -> tupl
     ]
     start = perf_counter()
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
-    return result.stdout + result.stderr, perf_counter() - start
+    output = result.stdout + result.stderr
+    if result.returncode not in (0, 1):
+        raise RuntimeError(f"pytest failed with exit code {result.returncode}:\n{output}")
+    return output, perf_counter() - start
 
 
 def parse_outcomes(output: str) -> dict[str, str]:
@@ -114,13 +124,18 @@ def parse_report(report: Path, tmpdir: Path) -> tuple[dict[str, float], dict[str
 
 
 def run_backend(backend: str, suites: list[Path],
-                pytest_args: list[str]) -> tuple[dict[str, str], dict[str, float],
+                pytest_args: list[str], *, include_controls: bool = False,
+                ) -> tuple[dict[str, str], dict[str, float],
                                                  dict[str, str], float]:
     with tempfile.TemporaryDirectory(dir=suites[0].parent) as directory_name:
         directory = Path(directory_name)
         targets = suites if backend == "reasoning" else [
             write_sympy_suite(directory, suite) for suite in suites]
-        output, wall = run_pytest(targets, directory / "report.xml", pytest_args)
+        # Pytest node IDs are relative to its rootdir, and the SymPy backend
+        # uses temporary filenames. Select by normalized identity at collection.
+        selection = [] if include_controls else ["-p", "validation._selection"]
+        output, wall = run_pytest(targets, directory / "report.xml",
+                                  [*pytest_args, *selection])
         timings, failures = parse_report(directory / "report.xml", directory)
     outcomes = parse_outcomes(output)
     if not outcomes:
@@ -167,6 +182,10 @@ def main() -> None:
                         help="extra arguments forwarded to pytest")
     parser.add_argument("--timings", type=int, default=10,
                         help="number of slowest tests to show; 0 disables")
+    parser.add_argument("--include-controls", action="store_true",
+                        help="include the expensive upstream generated-facts check")
+    parser.add_argument("--output", type=Path, metavar="JSON",
+                        help="save per-test outcomes, failures, and diagnostic timings")
     parser.add_argument("--verbose", action="store_true",
                         help="list each backend's failing tests")
     args = parser.parse_args()
@@ -176,12 +195,26 @@ def main() -> None:
         if REASONING_BINDING not in suite.read_text():
             raise SystemExit(f"{suite} does not bind satask from reasoning")
 
-    backends = {name: run_backend(name, suites, args.pytest_args)
+    backends = {name: run_backend(name, suites, args.pytest_args,
+                                 include_controls=args.include_controls)
                 for name in BACKENDS}
+
+    if not args.include_controls:
+        print("Excluded upstream control: " + ", ".join(CONTROL_TESTS)
+              + " (use --include-controls for the full suite)")
+    if args.output:
+        args.output.write_text(json.dumps({
+            "excluded_controls": [] if args.include_controls else list(CONTROL_TESTS),
+            "backends": {
+                name: {"outcomes": outcomes, "test_seconds": timings,
+                       "failures": failures, "validation_wall_seconds": wall}
+                for name, (outcomes, timings, failures, wall) in backends.items()
+            },
+        }, indent=2, sort_keys=True) + "\n")
 
     for name, (outcomes, timings, _, wall) in backends.items():
         print(f"{name}: {len(outcomes)} tests: {summarize(outcomes)} "
-              f"(wall {wall:.2f}s, tests {sum(timings.values()):.2f}s)")
+              f"(validation wall {wall:.2f}s, tests {sum(timings.values()):.2f}s)")
         if args.verbose:
             for test, outcome in sorted(outcomes.items()):
                 if outcome in ("FAILED", "ERROR"):

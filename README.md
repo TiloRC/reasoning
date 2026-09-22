@@ -70,8 +70,12 @@ lightweight formulas. Legacy substitution helpers remain available for callers.
 
 ## Validation and performance
 
-Run `python -m pytest reasoning/tests` and
+Run `python -m pytest reasoning/tests tests` and
 `python -m benchmarks.satask --repeat 25`.
+
+For fixed-workload ASV timings with answer checks, phase measurements, and
+scaling cases, see [benchmarks/README.md](benchmarks/README.md). Upstream validation
+tracks correctness separately; its wall time measures test execution cost.
 
 To compare answers against the pinned SymPy `satask`, run
 `python -m benchmarks.compare_satask --include-early-return`. Saved original
