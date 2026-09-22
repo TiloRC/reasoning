@@ -125,7 +125,8 @@ only adds a file, and every imported module exists on `main`).
 | Check | Before (`b5a75aa`) | After |
 |---|---|---|
 | `pytest reasoning/tests -q` | 158 passed, 1 xfailed | 165 passed, 1 xfailed |
-| `mypy` (config files) | 29 files clean | 43 files clean |
+| `mypy reasoning` | 29 files clean | 33 files clean |
+| `mypy` (config-wide) | — | 43 files clean |
 | `pytest validation/test_query.py validation/test_matrices.py -q` | 40 passed, 54 failed, 8 xfailed, 2 xpassed | same outcomes, 54.12 s |
 | `benchmarks.satask --repeat 15` totals (ms) | 0.401 / 2.796 / 7.230 / 0.220 / 0.323 | 0.423 / 2.827 / 7.549 / 0.228 / 0.329 |
 | clauses / variables, same cases | 82/31, 456/159, 1161/367, 26/17, 83/31 | identical |
