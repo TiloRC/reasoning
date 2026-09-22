@@ -1,3 +1,5 @@
+# This readme is written by AI
+
 # reasoning
 
 A propositional reasoning core with an optional SymPy integration.
