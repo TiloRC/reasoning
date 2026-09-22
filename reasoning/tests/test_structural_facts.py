@@ -37,11 +37,20 @@ def test_add_sign_parity_and_imaginary_facts() -> None:
     assert satask(Q.odd(x + y), Q.odd(x) & Q.odd(y)) is False
     assert satask(Q.odd(x + y + z), Q.odd(x) & Q.odd(y) & Q.even(z)) is False
 
-    assert satask(Q.imaginary(x + I), Q.real(x)) is False
-    assert satask(Q.imaginary(x + I), Q.imaginary(x)) is True
-    assert satask(Q.imaginary(x + y), Q.imaginary(x) & Q.real(y)) is False
+    # A sum of imaginary terms can cancel to zero and a zero real part leaves
+    # the sum imaginary, so the closed-group conclusion is guarded.
+    assert satask(Q.imaginary(x + I), Q.real(x)) is None
+    assert satask(Q.imaginary(x + I), Q.real(x) & Q.nonzero(x)) is False
+    assert satask(Q.imaginary(x + I), Q.imaginary(x)) is None
+    assert satask(Q.imaginary(x + y), Q.imaginary(x) & Q.real(y)) is None
+    assert satask(Q.imaginary(x + y),
+                  Q.imaginary(x) & Q.real(y) & Q.nonzero(y)) is False
     assert satask(Q.imaginary(x + y + z),
-                  Q.real(x) & Q.imaginary(y) & Q.imaginary(z)) is False
+                  Q.real(x) & Q.imaginary(y) & Q.imaginary(z)) is None
+    assert satask(Q.imaginary(x + y + z),
+                  Q.real(x) & Q.nonzero(x) & Q.imaginary(y)
+                  & Q.imaginary(z)) is False
+    assert satask(Q.antihermitian(x + I), Q.imaginary(x)) is True
 
 
 def test_mul_sign_and_parity_facts() -> None:

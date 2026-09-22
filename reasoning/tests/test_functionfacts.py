@@ -59,8 +59,9 @@ def test_exponential_facts() -> None:
     assert satask(Q.positive(exp(x*pi*I)), Q.odd(x)) is False
     assert satask(Q.positive(exp(x*pi*I)), Q.real(x)) is None
 
-    assert satask(Q.complex(exp(x))) is True
-    assert satask(Q.finite(exp(x))) is True
+    assert satask(Q.complex(exp(x))) is None
+    assert satask(Q.complex(exp(x)), Q.finite(x)) is True
+    assert satask(Q.finite(exp(x))) is None
     assert satask(Q.finite(exp(x)), Q.finite(x)) is True
     assert satask(Q.finite(exp(2))) is True
 
@@ -107,12 +108,17 @@ def test_absolute_value_and_parts_facts() -> None:
     assert satask(Q.positive(Abs(x)), Q.positive(x)) is True
     assert satask(Q.positive(Abs(x)), Q.negative(x)) is True
     assert satask(Q.nonzero(Abs(x)), Q.nonzero(x)) is True
-    assert satask(Q.complex(Abs(x))) is True
+    assert satask(Q.complex(Abs(x))) is None
+    assert satask(Q.complex(Abs(x)), Q.finite(x)) is True
 
-    assert satask(Q.real(re(x))) is True
-    assert satask(Q.real(im(x))) is True
-    assert satask(Q.complex(re(x))) is True
-    assert satask(Q.complex(im(x))) is True
+    assert satask(Q.real(re(x))) is None
+    assert satask(Q.real(im(x))) is None
+    assert satask(Q.real(re(x)), Q.finite(x)) is True
+    assert satask(Q.real(im(x)), Q.finite(x)) is True
+    assert satask(Q.complex(re(x))) is None
+    assert satask(Q.complex(im(x))) is None
+    assert satask(Q.complex(re(x)), Q.finite(x)) is True
+    assert satask(Q.complex(im(x)), Q.finite(x)) is True
     assert satask(Q.even(re(x)), Q.even(x)) is True
     assert satask(Q.even(im(x)), Q.even(x)) is True
     assert satask(Q.even(im(x)), Q.real(x)) is True
@@ -133,7 +139,11 @@ def test_inverse_trigonometric_facts() -> None:
     assert satask(Q.positive(acos(Rational(1, 7)))) is True
     assert satask(
         Q.positive(acos(x)),
-        Q.nonnegative(x + 1) & Q.nonpositive(x - 1)) is True
+        Q.nonnegative(x + 1) & Q.negative(x - 1)) is True
+    # acos(1) == 0 is not positive, so the closed interval is undecided.
+    assert satask(
+        Q.positive(acos(x)),
+        Q.nonnegative(x + 1) & Q.nonpositive(x - 1)) is None
     assert satask(Q.positive(acos(x)), Q.nonnegative(x - 1)) is None
 
     assert satask(Q.positive(acot(x)), Q.positive(x)) is True

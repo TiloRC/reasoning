@@ -51,8 +51,8 @@ def test_abs_facts_contain_no_sympy_boolean_connectives() -> None:
     expression = Abs(x)
     facts = class_fact_registry(expression)
     assert any(isinstance(fact, Formula) for fact in facts)
-    assert LocalQ.nonnegative(expression) in facts
     atoms = [atom for fact in facts for atom in iter_atoms(fact)]
+    assert LocalQ.nonnegative(expression) in atoms
     for atom in atoms:
         assert isinstance(atom, LocalAppliedPredicate)
         assert isinstance(atom.arguments[0], Basic)

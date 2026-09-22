@@ -97,8 +97,9 @@ def _asin_facts(expr: SymPyExpr) -> list[object]:
 def _acos_facts(expr: SymPyExpr) -> list[object]:
     arg = _argument(expr)
     return [
+        # acos(1) == 0 is not positive, so the upper end is excluded.
         IMPLIES(
-            AND(Q.nonnegative(arg + 1), Q.nonpositive(arg - 1)),
+            AND(Q.nonnegative(arg + 1), Q.negative(arg - 1)),
             Q.positive(expr),
         ),
         IMPLIES(Q.zero(arg - 1), Q.algebraic(expr)),
@@ -130,7 +131,9 @@ def _exp_facts(expr: SymPyExpr) -> list[object]:
     period = arg / _IMAGINARY_PI
     twice = 2 * period
     return [
-        Q.complex(expr),
+        # exp(oo) == oo and exp(-oo) == 0, so only a finite argument forces a
+        # finite complex value.
+        IMPLIES(Q.finite(arg), Q.complex(expr)),
         IMPLIES(OR(Q.real(arg), Q.integer(period)), Q.real(expr)),
         IMPLIES(AND(Q.imaginary(arg), NOT(Q.integer(period))), NOT(Q.real(expr))),
         IMPLIES(Q.real(arg), Q.positive(expr)),
@@ -180,7 +183,8 @@ def _log_facts(expr: SymPyExpr) -> list[object]:
 def _abs_facts(expr: SymPyExpr) -> list[object]:
     arg = _argument(expr)
     return [
-        Q.complex(expr),
+        # Abs(oo) == Abs(zoo) == oo is not complex.
+        IMPLIES(Q.finite(arg), Q.complex(expr)),
         IMPLIES(Q.nonzero(arg), Q.positive(expr)),
         IMPLIES(Q.nonzero(arg), Q.nonzero(expr)),
     ]
@@ -188,18 +192,20 @@ def _abs_facts(expr: SymPyExpr) -> list[object]:
 
 def _re_facts(expr: SymPyExpr) -> list[object]:
     arg = _argument(expr)
+    # re(oo) == oo is not complex and re(nan) == nan is not real.
     return [
-        Q.real(expr),
-        Q.complex(expr),
+        IMPLIES(Q.finite(arg), Q.real(expr)),
+        IMPLIES(Q.finite(arg), Q.complex(expr)),
         IMPLIES(Q.even(arg), Q.even(expr)),
     ]
 
 
 def _im_facts(expr: SymPyExpr) -> list[object]:
     arg = _argument(expr)
+    # im(zoo) == nan is not complex, so the argument must be finite.
     return [
-        Q.real(expr),
-        Q.complex(expr),
+        IMPLIES(Q.finite(arg), Q.real(expr)),
+        IMPLIES(Q.finite(arg), Q.complex(expr)),
         IMPLIES(Q.even(arg), Q.even(expr)),
         IMPLIES(Q.real(arg), Q.even(expr)),
     ]

@@ -114,7 +114,10 @@ class_fact_registry = ClassFactRegistry()
 def _abs_facts(expr: SymPyExpr) -> list[object]:
     arg = expr.args[0]
     return [
-        Q.nonnegative(expr),
+        # Abs is always extended-nonnegative; Abs(oo) == oo is not a finite
+        # nonnegative number, so the finite statement needs a finite argument.
+        Q.extended_nonnegative(expr),
+        IMPLIES(Q.finite(arg), Q.nonnegative(expr)),
         EQUIVALENT(NOT(Q.zero(arg)), NOT(Q.zero(expr))),
         IMPLIES(Q.even(arg), Q.even(expr)),
         IMPLIES(Q.odd(arg), Q.odd(expr)),
@@ -172,12 +175,18 @@ def _add_parity_facts(expr: SymPyExpr) -> object:
 
 @class_fact_registry.register(Add)
 def _add_imaginary_facts(expr: SymPyExpr) -> object:
-    imaginary_or_real = _allargs(
-        lambda arg: OR(Q.imaginary(arg), Q.real(arg)), expr)
-    return AND(
-        IMPLIES(_allargs(Q.imaginary, expr), Q.imaginary(expr)),
-        IMPLIES(AND(imaginary_or_real, _exactlyonearg(Q.real, expr)),
-                NOT(Q.imaginary(expr))),
+    # Imaginary terms can cancel to zero, and zero is not imaginary, so a
+    # sum of imaginary arguments is only known to be imaginary when it cannot
+    # cancel; that is not expressible, so only the negative direction is kept.
+    # It needs the single real argument to be nonzero: a zero real part leaves
+    # the sum purely imaginary (x + I with x = 0), while a nonzero one cannot
+    # be cancelled by the imaginary terms.
+    imaginary_or_nonzero_real = _allargs(
+        lambda arg: OR(Q.imaginary(arg), AND(Q.real(arg), NOT(Q.zero(arg)))),
+        expr)
+    return IMPLIES(
+        AND(imaginary_or_nonzero_real, _exactlyonearg(Q.real, expr)),
+        NOT(Q.imaginary(expr)),
     )
 
 
@@ -241,8 +250,14 @@ def _mul_closure_facts(expr: SymPyExpr) -> list[object]:
 
 @class_fact_registry.register(Mul)
 def _mul_facts(expr: SymPyExpr) -> object:
+    # A zero factor makes the product zero only when no other factor is
+    # infinite: ``oo*0`` is nan.  The converse stays exact, so a product can
+    # still be shown nonzero from its factors.
+    finite_or_zero = _allargs(
+        lambda arg: OR(Q.zero(arg), Q.finite(arg)), expr)
     return AND(
-        EQUIVALENT(Q.zero(expr), _anyarg(Q.zero, expr)),
+        IMPLIES(AND(_anyarg(Q.zero, expr), finite_or_zero), Q.zero(expr)),
+        IMPLIES(Q.zero(expr), _anyarg(Q.zero, expr)),
         IMPLIES(_allargs(Q.integer, expr), Q.integer(expr)),
         IMPLIES(
             AND(_allargs(lambda arg: NOT(Q.zero(arg)), expr),
@@ -250,6 +265,9 @@ def _mul_facts(expr: SymPyExpr) -> object:
             NOT(Q.integer(expr)),
         ),
         IMPLIES(_allargs(Q.nonzero, expr), Q.nonzero(expr)),
+        # A zero factor keeps the product from being a nonzero number: the
+        # product is zero or, with an infinite factor, nan.
+        IMPLIES(_anyarg(Q.zero, expr), NOT(Q.nonzero(expr))),
     )
 
 
@@ -424,7 +442,17 @@ def _pow_facts(expr: SymPyExpr) -> list[object]:
         IMPLIES(AND(Q.real(base), Q.even(exp), Q.nonnegative(exp)), Q.nonnegative(expr)),
         IMPLIES(AND(Q.nonnegative(base), Q.odd(exp), Q.nonnegative(exp)), Q.nonnegative(expr)),
         IMPLIES(AND(Q.nonpositive(base), Q.odd(exp), Q.nonnegative(exp)), Q.nonpositive(expr)),
-        EQUIVALENT(Q.zero(expr), AND(Q.zero(base), Q.positive(exp))),
+        # 0**positive and infinite**negative are zero.  The converse only
+        # holds for a finite positive exponent: ``(1/2)**oo == 0`` and
+        # ``0**oo == 0`` are zero for other exponent shapes, while a zero
+        # exponent always gives the nonzero value 1.
+        IMPLIES(AND(Q.zero(base), Q.positive(exp)), Q.zero(expr)),
+        IMPLIES(AND(Q.infinite(base), Q.negative(exp)), Q.zero(expr)),
+        IMPLIES(Q.zero(exp), NOT(Q.zero(expr))),
+        IMPLIES(AND(Q.zero(expr), Q.positive(exp), Q.finite(exp)), Q.zero(base)),
+        # A finite nonzero base with a finite exponent gives a nonzero power.
+        IMPLIES(AND(Q.finite(base), NOT(Q.zero(base)), Q.finite(exp)),
+                NOT(Q.zero(expr))),
     ]
 
 
@@ -445,7 +473,13 @@ def _pow_closure_facts(expr: SymPyExpr) -> object:
     return AND(
         IMPLIES(AND(_allargs(Q.complex, expr), _pow_regular(base, exp)),
                 Q.complex(expr)),
-        IMPLIES(_exactlyonearg(lambda arg: NOT(Q.complex(arg)), expr),
+        # A non-complex argument only makes the power non-complex for a
+        # positive integer exponent: ``oo**0 == 1`` and ``oo**-1 == 0`` are
+        # complex, and a finite base with an infinite exponent can be zero
+        # too, while an infinite base to a positive integer stays
+        # non-complex.
+        IMPLIES(AND(_exactlyonearg(lambda arg: NOT(Q.complex(arg)), expr),
+                    Q.integer(exp), Q.positive(exp)),
                 NOT(Q.complex(expr))),
         IMPLIES(AND(_allargs(Q.extended_real, expr), defined, real_power),
                 Q.extended_real(expr)),
@@ -539,7 +573,10 @@ def _pow_rational_facts(expr: SymPyExpr) -> object:
         IMPLIES(AND(Q.rational(exp), Q.eq(base, S.One)), Q.rational(expr)),
         IMPLIES(AND(Q.rational(exp), Q.prime(base), NOT(Q.integer(exp))),
                 NOT(Q.rational(expr))),
-        IMPLIES(AND(Q.integer(exp), NOT(Q.algebraic(base))),
+        # For a transcendental base the exponent-zero value 1 is the only
+        # rational power, but an infinite base also gives 0 for a negative
+        # exponent (``oo**-1 == 0``), so the rule needs a finite base.
+        IMPLIES(AND(Q.integer(exp), NOT(Q.algebraic(base)), Q.finite(base)),
                 EQUIVALENT(Q.rational(expr), Q.zero(exp))),
     ]
     if isinstance(exp, NegativeOne):
