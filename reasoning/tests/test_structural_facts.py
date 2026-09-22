@@ -144,3 +144,25 @@ def test_extended_real_and_infinite_facts() -> None:
     assert satask(Q.infinite(1/x), Q.finite(x) & ~Q.zero(x)) is False
     assert satask(Q.positive_infinite(x + I), Q.real(x)) is False
     assert satask(Q.positive_infinite(x*I), Q.real(x)) is False
+
+
+def test_mul_finite_extended_nonzero_pattern_is_forced() -> None:
+    """The global fact base cannot mirror ``FiniteHandler_Mul`` at
+    ``test_bounded`` line 1108.
+
+    SymPy's handler-local rule returns None for ``finite(x*y*z)`` given
+    ``~finite(z)`` and extended-nonzero factors, but ``extended_nonzero``
+    splits into positive/negative (finite and nonzero) or the two
+    infinities, so every model of that pattern also satisfies one of the
+    explicit patterns below.  A sound global fact base therefore cannot
+    answer None there without regressing them.
+    """
+    a = x*y*z
+    assert satask(Q.finite(a), Q.finite(x) & ~Q.zero(x) & Q.finite(y)
+                  & ~Q.zero(y) & ~Q.finite(z)) is False
+    assert satask(Q.finite(a), Q.finite(x) & ~Q.zero(x) & ~Q.finite(y)
+                  & ~Q.finite(z)) is False
+    assert satask(Q.finite(a), ~Q.finite(x) & ~Q.finite(y)
+                  & ~Q.finite(z)) is False
+    assert satask(Q.finite(a), ~Q.finite(z) & Q.extended_nonzero(x)
+                  & Q.extended_nonzero(y) & Q.extended_nonzero(z)) is False
