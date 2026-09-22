@@ -138,7 +138,7 @@ CURATED_CASES: tuple[tuple[Any, Any, str], ...] = (
 @dataclass(frozen=True)
 class Case:
     proposition: Any
-    assumptions: Any
+    premises: Any
     label: str
     model_count: int = 12
     model_tries: int = 200
@@ -154,7 +154,7 @@ class Finding:
     def format(self) -> str:
         return (f"{self.kind}: {self.case.label}\n"
                 f"  proposition: {self.case.proposition}\n"
-                f"  assumptions: {self.case.assumptions}\n"
+                f"  assumptions: {self.case.premises}\n"
                 f"  {self.detail}")
 
 
@@ -207,7 +207,7 @@ def find_models(case: Case, scalar_symbols: Sequence[Any],
             symbol: rng.choice(SCALAR_VALUES) for symbol in scalar_symbols}
         values.update(
             {symbol: rng.choice(MATRIX_VALUES) for symbol in matrix_symbols})
-        if ground_truth(case.assumptions, values) is not True:
+        if ground_truth(case.premises, values) is not True:
             continue
         key = tuple(sorted((str(symbol), repr(value))
                            for symbol, value in values.items()))
@@ -237,7 +237,7 @@ def _counterexample_note(proposition: Any, models: Sequence[dict[Any, Any]],
 
 
 def _oracle_answer(ask_fn: AskFn, case: Case) -> Any:
-    status, oracle = _call(ask_fn, case.proposition, case.assumptions)
+    status, oracle = _call(ask_fn, case.proposition, case.premises)
     return oracle if status == "value" else None
 
 
@@ -273,7 +273,7 @@ def audit_case(case: Case, scalar_symbols: Sequence[Any],
         return CaseReport((), False)
 
     findings: list[Finding] = []
-    status, result = _call(satask_fn, case.proposition, case.assumptions)
+    status, result = _call(satask_fn, case.proposition, case.premises)
     if status == "error":
         kind = "spurious-inconsistency" if _inconsistent(result) else "exception"
         findings.append(Finding(
@@ -289,7 +289,7 @@ def audit_case(case: Case, scalar_symbols: Sequence[Any],
             f"satask={result} but sympy.ask={oracle}"))
 
     status, negated = _call(
-        satask_fn, Not(case.proposition), case.assumptions)
+        satask_fn, Not(case.proposition), case.premises)
     if status == "value" and result is not None and result == negated:
         findings.append(Finding(
             "both-polars", case,
@@ -299,7 +299,7 @@ def audit_case(case: Case, scalar_symbols: Sequence[Any],
 
     if early_return:
         status, early = _call(
-            satask_fn, case.proposition, case.assumptions,
+            satask_fn, case.proposition, case.premises,
             early_return=True)
         if status == "value" and early is not None:
             if result is not None and early != result:

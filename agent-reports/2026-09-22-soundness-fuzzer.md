@@ -4,7 +4,8 @@
 - **Status:** tool implemented on branch `agent/handler-fuzzer` (based on `main`
   `29cca2e`); no handler code touched
 - **Scope:** `tools/check_soundness.py`, `reasoning/tests/test_check_soundness.py`,
-  `pyproject.toml` (adds `hypothesis` to the dev extra)
+  `pyproject.toml` (adds `hypothesis` to the dev extra), and the README
+  validation section
 - **Read this if:** you are adding or auditing handler facts and want to know
   whether a definite `satask` answer is true, not just whether it matches a
   validation expectation
@@ -123,5 +124,6 @@ not shared and is reported. Both curated cases are in the regression list.
   the curated case flips to passing.
 - Run the fuzzer against each tail/matrix worktree before merging handler
   changes; `--strict` gives the upstream-shared list for review.
-- A fixed-seed, small-case Hypothesis run could gate CI once its runtime is
-  acceptable (about 40s for 200 examples on this machine).
+- A fixed-seed Hypothesis run (`--cases 50 --derandomize`, about 10s) can gate
+  CI once the Pow finding is fixed; wiring it before then would turn `main` red
+  as soon as the tail-audit handlers merge.

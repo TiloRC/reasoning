@@ -124,7 +124,7 @@ def test_hypothesis_cases_carry_satisfying_models() -> None:
     @given(check_soundness.hypothesis_cases(True))
     def check(case: Any) -> None:
         assert case.model is not None
-        assert check_soundness.ground_truth(case.assumptions, case.model) is True
+        assert check_soundness.ground_truth(case.premises, case.model) is True
 
     check()
 
