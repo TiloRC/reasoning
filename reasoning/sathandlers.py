@@ -113,7 +113,7 @@ def _abs_facts(expr: SymPyExpr) -> list[object]:
 
 _ADD_CLOSURE_PREDICATES = (
     Q.real, Q.complex, Q.extended_real, Q.rational, Q.integer,
-    Q.algebraic, Q.hermitian, Q.antihermitian,
+    Q.algebraic, Q.hermitian, Q.antihermitian, Q.finite,
 )
 
 
@@ -189,10 +189,30 @@ def _add_commutative_facts(expr: SymPyExpr) -> object:
 
 @class_fact_registry.register(Add)
 def _add_infinite_fact(expr: SymPyExpr) -> object:
-    return IMPLIES(
-        AND(_exactlyonearg(Q.infinite, expr),
-            _allargs(lambda arg: OR(Q.finite(arg), Q.infinite(arg)), expr)),
-        Q.infinite(expr),
+    # Same-sign infinite arguments make the sum non-finite even when more
+    # than one argument is unbounded: all-positive-or-finite sums with a
+    # ``positive_infinite`` term, and sums whose unbounded terms are all
+    # non-positive-extended, cannot cancel to a finite value.
+    positive_group = _allargs(
+        lambda arg: OR(Q.finite(arg), Q.extended_positive(arg)), expr)
+    negative_group = _allargs(
+        lambda arg: OR(Q.finite(arg), NOT(Q.extended_positive(arg))), expr)
+    return AND(
+        IMPLIES(
+            AND(_exactlyonearg(Q.infinite, expr),
+                _allargs(lambda arg: OR(Q.finite(arg), Q.infinite(arg)), expr)),
+            Q.infinite(expr),
+        ),
+        IMPLIES(
+            AND(positive_group, _anyarg(Q.positive_infinite, expr)),
+            NOT(Q.finite(expr)),
+        ),
+        IMPLIES(
+            AND(negative_group,
+                _anyarg(lambda arg: AND(NOT(Q.finite(arg)),
+                                        NOT(Q.extended_positive(arg))), expr)),
+            NOT(Q.finite(expr)),
+        ),
     )
 
 
@@ -325,6 +345,54 @@ def _mul_infinite_fact(expr: SymPyExpr) -> object:
             _allargs(lambda arg: OR(Q.finite(arg), Q.infinite(arg)), expr),
             _allargs(lambda arg: NOT(Q.zero(arg)), expr)),
         Q.infinite(expr),
+    )
+
+
+@class_fact_registry.register(Mul)
+def _mul_finite_facts(expr: SymPyExpr) -> object:
+    # Every factor finite makes the product finite.  One non-finite factor
+    # makes it non-finite when every other factor is finite-nonzero; two
+    # non-finite factors suffice on their own, and a single further factor
+    # known to be extended-nonzero is tolerated because it cannot be zero.
+    def nonfinite(arg: SymPyExpr) -> object:
+        return NOT(Q.finite(arg))
+
+    def finite_nonzero(arg: SymPyExpr) -> object:
+        return AND(Q.finite(arg), NOT(Q.zero(arg)))
+
+    def finite_nonzero_or_nonfinite(arg: SymPyExpr) -> object:
+        return OR(finite_nonzero(arg), nonfinite(arg))
+
+    args = expr.args
+    pair_terms = [
+        AND(nonfinite(args[first]), nonfinite(args[second]),
+            *(finite_nonzero(arg) for position, arg in enumerate(args)
+              if position not in (first, second)))
+        for first in range(len(args))
+        for second in range(first + 1, len(args))
+    ]
+    tolerated_terms = [
+        AND(nonfinite(args[first]), nonfinite(args[second]),
+            Q.extended_nonzero(args[tolerated]),
+            *(finite_nonzero(arg) for position, arg in enumerate(args)
+              if position not in (first, second, tolerated)))
+        for first in range(len(args))
+        for second in range(first + 1, len(args))
+        for tolerated in range(len(args))
+        if tolerated not in (first, second)
+    ]
+    return AND(
+        IMPLIES(_allargs(Q.finite, expr), Q.finite(expr)),
+        IMPLIES(
+            AND(
+                _exactlyonearg(nonfinite, expr),
+                _allargs(finite_nonzero_or_nonfinite, expr),
+            ),
+            NOT(Q.finite(expr)),
+        ),
+        IMPLIES(OR(*pair_terms), NOT(Q.finite(expr))),
+        IMPLIES(_allargs(nonfinite, expr), NOT(Q.finite(expr))),
+        IMPLIES(OR(*tolerated_terms), NOT(Q.finite(expr))),
     )
 
 
