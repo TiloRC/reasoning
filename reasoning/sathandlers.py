@@ -265,17 +265,25 @@ def _mul_hermitian_facts(expr: SymPyExpr) -> object:
     all_hermitian = _allargs(Q.hermitian, expr)
     all_antihermitian = _allargs(Q.antihermitian, expr)
     one_antihermitian = _exactlyonearg(Q.antihermitian, expr)
+    # SymPy's Mul._eval_herm_antiherm only reports a product as *not* having a
+    # parity-determined hermitian character when it is known to be nonzero:
+    # zero is both hermitian and antihermitian, so a zero product can satisfy
+    # either predicate regardless of its factors' parities.
+    nonzero = NOT(Q.zero(expr))
     facts = [
         IMPLIES(all_hermitian, Q.hermitian(expr)),
-        IMPLIES(all_hermitian, NOT(Q.antihermitian(expr))),
-        IMPLIES(AND(hermitian_or_anti, one_antihermitian), NOT(Q.hermitian(expr))),
+        IMPLIES(AND(all_hermitian, nonzero), NOT(Q.antihermitian(expr))),
+        IMPLIES(AND(hermitian_or_anti, one_antihermitian, nonzero),
+                NOT(Q.hermitian(expr))),
         IMPLIES(AND(hermitian_or_anti, one_antihermitian), Q.antihermitian(expr)),
     ]
     if len(expr.args) % 2 == 0:
         facts.append(IMPLIES(all_antihermitian, Q.hermitian(expr)))
-        facts.append(IMPLIES(all_antihermitian, NOT(Q.antihermitian(expr))))
+        facts.append(IMPLIES(AND(all_antihermitian, nonzero),
+                             NOT(Q.antihermitian(expr))))
     else:
-        facts.append(IMPLIES(all_antihermitian, NOT(Q.hermitian(expr))))
+        facts.append(IMPLIES(AND(all_antihermitian, nonzero),
+                             NOT(Q.hermitian(expr))))
         facts.append(IMPLIES(all_antihermitian, Q.antihermitian(expr)))
     return AND(*facts)
 

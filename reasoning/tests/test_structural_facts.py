@@ -68,6 +68,14 @@ def test_mul_closure_and_imaginary_facts() -> None:
     assert satask(Q.imaginary(x*y), Q.imaginary(x) & Q.imaginary(y)) is False
     assert satask(Q.hermitian(I*x), Q.imaginary(x)) is True
 
+    assert satask(Q.antihermitian(x*y), Q.hermitian(x) & Q.hermitian(y)) is None
+    assert satask(Q.antihermitian(x*y),
+                  Q.hermitian(x) & Q.hermitian(y) & ~Q.zero(x*y)) is False
+    assert satask(Q.antihermitian(x*y),
+                  Q.antihermitian(x) & Q.antihermitian(y)) is None
+    assert satask(Q.antihermitian(x*y),
+                  Q.antihermitian(x) & Q.antihermitian(y) & ~Q.zero(x*y)) is False
+
 
 def test_pow_real_and_rational_facts() -> None:
     assert satask(Q.real(x**2), Q.real(x)) is True

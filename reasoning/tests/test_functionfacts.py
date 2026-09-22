@@ -75,6 +75,9 @@ def test_exp_is_pow_representation() -> None:
         assert satask(Q.real(exp(pi*I/2, evaluate=False))) is False
         assert satask(Q.positive(exp(x)), Q.real(x)) is True
         assert satask(Q.positive(exp(x*pi*I)), Q.even(x)) is True
+        assert satask(Q.algebraic(exp(x)), Q.algebraic(x)) is None
+        assert satask(Q.algebraic(exp(x)),
+                      Q.algebraic(x) & Q.nonzero(x)) is False
 
 
 def test_logarithm_facts() -> None:
