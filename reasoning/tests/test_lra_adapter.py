@@ -1,4 +1,4 @@
-from sympy import I, Q, Rational
+from sympy import I, Q, MatrixSymbol, Rational
 from sympy.abc import x, y
 
 import pytest
@@ -37,6 +37,17 @@ def test_unhandled_arguments_leave_the_atom_to_the_sat_layer() -> None:
     db = _database(Q.gt(x, 0.5) & Q.lt(I, 1) & Q.gt(x, 0))
     constraints, _ = lra_constraints(db)
     assert set(constraints) == {_id(db, Q.gt(x, 0))}
+
+
+def test_matrix_relations_are_skipped() -> None:
+    matrix = MatrixSymbol("A", 2, 2)
+    db = _database(Q.eq(matrix, matrix) & Q.gt(x, 0))
+    constraints, conflicts = lra_constraints(db)
+    assert set(constraints) == {_id(db, Q.gt(x, 0))}
+    assert conflicts == []
+    # Q.eq(A, A) is true, but satask has no handler for it; the theory must
+    # not mistake the zero-matrix arithmetic for a false equality.
+    assert satask(Q.eq(matrix, matrix), use_lra_theory=True) is None
 
 
 def test_build_lra_theory_returns_no_solver_without_relations() -> None:

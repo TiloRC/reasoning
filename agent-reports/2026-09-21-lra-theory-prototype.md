@@ -12,7 +12,7 @@
   `satask`
 - **Stale after:** changes to `reasoning/solver.py`, `reasoning/lra.py`,
   `reasoning/lra_adapter.py`, `reasoning/satask.py`, or the pinned SymPy
-- **TL;DR:** the #30537 protocol ports cleanly: 134 unit tests pass (up from
+- **TL;DR:** the #30537 protocol ports cleanly: 135 unit tests pass (up from
   74), mypy strict is clean, and `test_query.py` gains exactly one test
   (`test_issue_28127`, 38→39 passed, no regressions). A 528-query randomized
   differential against SymPy's `ask` found zero wrong answers; the opt-in mode
@@ -30,7 +30,7 @@ Four new modules plus wiring:
 | `reasoning/theory.py` | `TheorySolver` protocol: `assert_lit`, `check`, `push_level`, `pop_level` |
 | `reasoning/lra.py` | SymPy-free dual-simplex LRA solver (Port of `lra_theory.py`) over `(terms, constant, strict, equality)` records with `Fraction` arithmetic, terms are opaque hashable keys |
 | `reasoning/lra_adapter.py` | Interprets `LocalQ.eq/gt/lt/ge/le` atoms: constant folding, rational validation, nan/imaginary/infinity rejection, Add/Mul splitting, slack terms |
-| `reasoning/tests/{test_lra,test_theory,test_lra_adapter}.py` | 60 new tests |
+| `reasoning/tests/{test_lra,test_theory,test_lra_adapter}.py` | 61 new tests |
 
 Wiring is deliberately small (`git diff --stat` on tracked files: 118 lines in
 three files):
@@ -107,6 +107,12 @@ The randomized differential (§5) is the empirical check on this argument.
   handled, but relational queries still search more than a propagating theory
   would. `_simplify`/`_pure_literal` is the hook for a future
   `theory_prop`.
+- **Matrix relations must be rejected, not interpreted.** `MatrixExpr` is an
+  `Expr`, so the scalar checks pass, but `A - A` is a `ZeroMatrix` and
+  `Eq(ZeroMatrix, 0)` is `False`, which silently turned the true
+  `Q.eq(A, A)` into a false answer. The adapter now skips any relation with a
+  matrix argument (`test_matrix_relations_are_skipped`); upstream rejects
+  these too.
 - **`var_settings` seeds would bypass the theory**, so non-empty seeds with a
   theory raise `NotImplementedError` rather than run unsound.
 
@@ -114,7 +120,7 @@ The randomized differential (§5) is the empirical check on this argument.
 
 Unit and correctness gates:
 
-- `python -m pytest reasoning/tests`: **134 passed, 1 xfailed** (was 74 + 1).
+- `python -m pytest reasoning/tests`: **135 passed, 1 xfailed** (was 74 + 1).
 - `python -m mypy reasoning`: clean, strict.
 - `python -m benchmarks.satask --repeat 25` against the pre-change worktree:
   all five cases within 0.99–1.01x.

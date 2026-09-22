@@ -65,13 +65,22 @@ def _interpret(name: str, lhs: Any, rhs: Any) -> bool | LRAConstraint:
     """
     if lhs is S.NaN or rhs is S.NaN:
         raise UnhandledLRA("relation contains nan")
-    if lhs.is_imaginary is True or rhs.is_imaginary is True:
+    if lhs.is_Matrix is True or rhs.is_Matrix is True:
+        # MatrixExpr is an Expr, but its arithmetic is not scalar; for
+        # example Eq(A - A, 0) is False for a zero matrix, which would turn
+        # the true relation Q.eq(A, A) into a false one.
+        raise UnhandledLRA("relation contains a matrix")
+    if getattr(lhs, "is_imaginary", None) is True or getattr(
+            rhs, "is_imaginary", None) is True:
         raise UnhandledLRA("relation contains an imaginary component")
     if lhs in (S.Infinity, S.NegativeInfinity) or rhs in (S.Infinity,
                                                           S.NegativeInfinity):
         raise UnhandledLRA("relation contains infinity")
 
-    expr = lhs - rhs
+    try:
+        expr = lhs - rhs
+    except (TypeError, ValueError) as error:
+        raise UnhandledLRA(f"{name}({lhs}, {rhs}) is not subtractable: {error}")
     relation = _RELATIONS[name](expr, S.Zero)
     if relation is S.true:
         return True
