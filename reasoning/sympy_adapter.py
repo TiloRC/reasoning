@@ -4,6 +4,7 @@ from typing import Any, Callable, Iterable, TypeAlias, cast
 
 from sympy import S, Symbol
 from sympy.assumptions.assume import AppliedPredicate
+from sympy.core import Add
 from sympy.core.function import Function
 from sympy.assumptions.ask_generated import (
     get_all_known_matrix_facts, get_all_known_number_facts,
@@ -130,9 +131,18 @@ def _extra_predicate_facts(subject: SymPyExpr) -> Iterable[object]:
     These are universal implications, so they are asserted for every subject
     alongside the imported known facts.  They only mention local predicates
     and the opaque subject, so the core stays SymPy-free.
+
+    The ``imaginary -> ~hermitian`` implication is omitted for ``Add``
+    subjects.  SymPy's closed-group rule infers ``imaginary`` for a sum of
+    imaginary terms even when the terms cancel to zero, and zero is
+    hermitian (``x + I`` with ``x = -I``), so the implication is only sound
+    for subjects whose ``imaginary`` fact cannot come from that rule.
     """
-    facts: list[object] = [
-        IMPLIES(LocalQ.imaginary(subject), NOT(LocalQ.hermitian(subject))),
+    facts: list[object] = []
+    if not isinstance(subject, Add):
+        facts.append(
+            IMPLIES(LocalQ.imaginary(subject), NOT(LocalQ.hermitian(subject))))
+    facts.extend([
         IMPLIES(LocalQ.imaginary(subject), NOT(LocalQ.extended_real(subject))),
         IMPLIES(AND(LocalQ.real(subject), LocalQ.nonzero(subject)),
                 NOT(LocalQ.antihermitian(subject))),
@@ -141,7 +151,7 @@ def _extra_predicate_facts(subject: SymPyExpr) -> Iterable[object]:
         IMPLIES(LocalQ.nonnegative(subject), NOT(LocalQ.negative(subject))),
         IMPLIES(LocalQ.integer(subject),
                 EQUIVALENT(LocalQ.odd(subject), NOT(LocalQ.even(subject)))),
-    ]
+    ])
     if isinstance(subject, Function):
         facts.append(IMPLIES(
             AND(*(LocalQ.commutative(arg) for arg in subject.args)),
