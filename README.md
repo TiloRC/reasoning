@@ -73,9 +73,9 @@ lightweight formulas. Legacy substitution helpers remain available for callers.
 Run `python -m pytest reasoning/tests` and
 `python -m benchmarks.satask --repeat 25`.
 
-To compare answers against saved original modules, run
-`python -m benchmarks.compare_satask --baseline-satask /path/to/satask.py
---baseline-handlers /path/to/sathandlers.py --include-early-return`.
+To compare answers against the pinned SymPy `satask`, run
+`python -m benchmarks.compare_satask --include-early-return`. Saved original
+modules remain supported with `--baseline-satask` and `--baseline-handlers`.
 
 The benchmark reports warm median conversion, discovery/encoding, query
 encoding, and solving times, plus clause and variable counts. Discovery and fact
