@@ -29,6 +29,13 @@ example, so no query is rejected for lack of a model.  ``--engine random``
 selects the seedable stdlib generator instead, which reports every finding it
 encounters rather than one minimized example per run.
 
+The model pools and grammar cover declared symbols (``n``, ``ni`` and ``xi``),
+infinities and undefined values, ``evaluate=False`` powers, and matrix
+expressions (products, powers, slices and zero matrices).  Matrix element
+predicates are evaluated by expanding the substituted expression and asking
+about each element, because ``ask`` does not decide them for explicit
+matrices.
+
 The audit imports ``reasoning`` from the environment; point ``PYTHONPATH`` at
 another checkout to audit its handlers::
 
@@ -52,14 +59,17 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from hypothesis.strategies import DrawFn
 from sympy import (
-    Abs, E, I, Q, Rational, S, ask, cos, exp, im, log, pi, re, sin, sqrt,
-    symbols,
+    Abs, E, I, Pow, Q, Rational, S, Symbol, acos, ask, cos, exp, factorial,
+    im, log, nan, oo, pi, re, sin, sqrt, symbols, zoo,
 )
 from sympy.assumptions.assume import AppliedPredicate
 from sympy.logic.boolalg import (
     And, Equivalent, Implies, Not, Or, Xor, simplify_logic,
 )
-from sympy.matrices.expressions import MatrixSymbol
+from sympy.matrices.expressions import (
+    HadamardProduct, MatMul, MatPow, MatrixSlice, MatrixSymbol, Transpose,
+)
+from sympy.matrices.expressions.special import ZeroMatrix
 from sympy.matrices.immutable import ImmutableMatrix
 
 from reasoning.satask import satask
@@ -71,7 +81,7 @@ AskFn = Callable[..., Any]
 SCALAR_VALUES: tuple[Any, ...] = (
     S.Zero, S.One, S.NegativeOne, S(2), S(-2), S.Half, Rational(2, 3),
     Rational(-3, 2), I, -I, 2*I, 1 + I, 1 - I, sqrt(2), -sqrt(2), pi, E,
-    exp(2*pi), exp(pi), log(2), 3 + 4*I,
+    exp(2*pi), exp(pi), log(2), 3 + 4*I, oo, -oo, zoo, nan,
 )
 
 MATRIX_VALUES: tuple[Any, ...] = (
@@ -85,33 +95,63 @@ MATRIX_VALUES: tuple[Any, ...] = (
     ImmutableMatrix([[I, 0], [0, I]]),
     ImmutableMatrix([[1, 2], [3, 4]]),
     ImmutableMatrix([[1, 0], [0, 0]]),
+    ImmutableMatrix([[0, 0], [0, 0]]),
+    ImmutableMatrix([[0, 1], [0, 0]]),
 )
 
 CONSTANTS: tuple[Any, ...] = (
-    S.Zero, S.One, S.NegativeOne, S(2), I, pi, Rational(1, 2), E,
+    S.Zero, S.One, S.NegativeOne, S(2), I, pi, Rational(1, 2), E, oo, -oo,
+    zoo,
 )
 
 SCALAR_PREDICATES: tuple[Any, ...] = (
     Q.zero, Q.nonzero, Q.positive, Q.negative, Q.nonnegative, Q.nonpositive,
-    Q.real, Q.extended_real, Q.imaginary, Q.complex, Q.integer, Q.rational,
-    Q.irrational, Q.algebraic, Q.transcendental, Q.even, Q.odd, Q.prime,
-    Q.composite, Q.finite, Q.infinite, Q.hermitian, Q.antihermitian,
-    Q.commutative,
+    Q.real, Q.extended_real, Q.extended_positive, Q.extended_negative,
+    Q.extended_nonnegative, Q.extended_nonpositive, Q.imaginary, Q.complex,
+    Q.integer, Q.rational, Q.irrational, Q.algebraic, Q.transcendental,
+    Q.even, Q.odd, Q.prime, Q.composite, Q.finite, Q.infinite, Q.hermitian,
+    Q.antihermitian, Q.commutative,
 )
 
 MATRIX_PREDICATES: tuple[Any, ...] = (
     Q.square, Q.invertible, Q.fullrank, Q.symmetric, Q.diagonal,
     Q.lower_triangular, Q.upper_triangular, Q.orthogonal, Q.unitary,
-    Q.positive_definite, Q.singular, Q.hermitian,
+    Q.positive_definite, Q.singular, Q.hermitian, Q.integer_elements,
+    Q.real_elements, Q.complex_elements,
 )
 
 RELATION_PREDICATES: tuple[Any, ...] = (Q.eq, Q.ne, Q.gt, Q.ge, Q.lt, Q.le)
 
 x, y, z = symbols("x y z")
+n = Symbol("n", integer=True)
+ni = Symbol("ni", integer=True, negative=True)
+xi = Symbol("xi", infinite=True)
 A, B = MatrixSymbol("A", 2, 2), MatrixSymbol("B", 2, 2)
 
-SCALAR_SYMBOLS: tuple[Any, ...] = (x, y, z)
+SCALAR_SYMBOLS: tuple[Any, ...] = (x, y, z, n, ni, xi)
 MATRIX_SYMBOLS: tuple[Any, ...] = (A, B)
+
+DECLARED_PREDICATES: dict[Any, tuple[Any, ...]] = {
+    n: (Q.integer, Q.commutative),
+    ni: (Q.integer, Q.negative, Q.commutative),
+    xi: (Q.infinite, Q.commutative),
+}
+
+_DECLARED_POOLS: dict[Any, tuple[Any, ...]] = {}
+
+
+def declared_pool(symbol: Any) -> tuple[Any, ...]:
+    """Values a symbol can take while respecting its declared assumptions."""
+    if symbol not in _DECLARED_POOLS:
+        predicates = DECLARED_PREDICATES.get(symbol)
+        if predicates is None:
+            _DECLARED_POOLS[symbol] = SCALAR_VALUES
+        else:
+            _DECLARED_POOLS[symbol] = tuple(
+                value for value in SCALAR_VALUES
+                if all(ask(predicate(value)) is True
+                       for predicate in predicates))
+    return _DECLARED_POOLS[symbol]
 
 CURATED_MODEL_COUNT = 32
 CURATED_MODEL_TRIES = 400
@@ -127,6 +167,8 @@ CURATED_CASES: tuple[tuple[Any, Any, str], ...] = (
      "negative(-I + I*(cos(2)**2 + sin(2)**2))"),
     (Q.complex(1/x), Q.complex(x), "complex(1/x) | complex(x)"),
     (Q.zero(x), ~Q.complex(1/x), "zero(x) | ~complex(1/x)"),
+    (Q.algebraic(Pow(S(2), nan, evaluate=False)), True,
+     "algebraic(Pow(2, nan, evaluate=False))"),
     (Q.integer(sqrt(2)*x), Q.integer(x), "integer(sqrt(2)*x) | integer(x)"),
     (Q.real(x*y), Q.real(x) & Q.real(y), "real(x*y) | real(x) & real(y)"),
     (Q.zero(x*y), Q.zero(x), "zero(x*y) | zero(x)"),
@@ -165,6 +207,55 @@ class CaseReport:
     suppressed: int = 0
 
 
+ELEMENT_PREDICATES: dict[Any, Any] = {
+    Q.integer_elements: Q.integer,
+    Q.real_elements: Q.real,
+    Q.complex_elements: Q.complex,
+}
+
+
+def _is_matrix(value: Any) -> bool:
+    return bool(getattr(value, "is_Matrix", False)
+                or getattr(value, "is_MatrixExpr", False))
+
+
+def _explicit_matrix(value: Any) -> Any:
+    if isinstance(value, ImmutableMatrix):
+        return value
+    if not _is_matrix(value):
+        return None
+    try:
+        explicit = value.as_explicit()
+    except Exception:
+        return None
+    return explicit if isinstance(explicit, ImmutableMatrix) else None
+
+
+def _ask_bool(proposition: Any) -> bool | None:
+    truth = ask(proposition)
+    if truth is True:
+        return True
+    if truth is False:
+        return False
+    return None
+
+
+def atom_truth(atom: Any) -> bool | None:
+    """Evaluate one ground atom, expanding matrix element predicates."""
+    arguments = getattr(atom, "arguments", ())
+    if arguments and _is_matrix(arguments[0]):
+        matrix = _explicit_matrix(arguments[0])
+        if matrix is not None:
+            scalar = ELEMENT_PREDICATES.get(atom.function)
+            if scalar is not None:
+                element_truths = [_ask_bool(scalar(element)) for element in matrix]
+                if any(truth is None for truth in element_truths):
+                    return None
+                return all(truth is True for truth in element_truths)
+            return _ask_bool(atom.function(matrix))
+    return _ask_bool(atom)
+
+
 def ground_truth(formula: Any, values: dict[Any, Any]) -> bool | None:
     """Evaluate a ground formula with ``ask``, or None if an atom is unknown."""
     if formula is True:
@@ -175,7 +266,7 @@ def ground_truth(formula: Any, values: dict[Any, Any]) -> bool | None:
         substituted = formula.subs(values)
         replacements: dict[Any, Any] = {}
         for atom in substituted.atoms(AppliedPredicate):
-            truth = ask(atom)
+            truth = atom_truth(atom)
             if truth is None:
                 return None
             replacements[atom] = S.true if truth is True else S.false
@@ -204,7 +295,8 @@ def find_models(case: Case, scalar_symbols: Sequence[Any],
         if len(models) >= count:
             break
         values: dict[Any, Any] = {
-            symbol: rng.choice(SCALAR_VALUES) for symbol in scalar_symbols}
+            symbol: rng.choice(declared_pool(symbol))
+            for symbol in scalar_symbols}
         values.update(
             {symbol: rng.choice(MATRIX_VALUES) for symbol in matrix_symbols})
         if ground_truth(case.premises, values) is not True:
@@ -318,7 +410,7 @@ def random_scalar(rng: random.Random, scalar_symbols: Sequence[Any],
         return rng.choice((*scalar_symbols, *CONSTANTS))
     left = random_scalar(rng, scalar_symbols, depth - 1)
     right = random_scalar(rng, scalar_symbols, depth - 1)
-    operation = rng.randrange(11)
+    operation = rng.randrange(14)
     if operation == 0:
         return left + right
     if operation == 1:
@@ -339,7 +431,13 @@ def random_scalar(rng: random.Random, scalar_symbols: Sequence[Any],
         return log(left)
     if operation == 9:
         return re(left)
-    return im(left)
+    if operation == 10:
+        return im(left)
+    if operation == 11:
+        return acos(left)
+    if operation == 12:
+        return factorial(left)
+    return Pow(left, right, evaluate=False)
 
 
 def random_atom(rng: random.Random, scalar_symbols: Sequence[Any],
@@ -411,9 +509,44 @@ def scalar_strategy() -> Any:
             st.builds(log, children),
             st.builds(re, children),
             st.builds(im, children),
+            st.builds(acos, children),
+            st.builds(factorial, children),
+            st.builds(
+                lambda base, exp: Pow(base, exp, evaluate=False),
+                children, children),
         ),
         max_leaves=6,
     )
+
+
+def _matrix_slice(parent: Any, rows: tuple[int, int],
+                  cols: tuple[int, int]) -> Any:
+    return MatrixSlice(parent, slice(*rows), slice(*cols))
+
+
+MATRIX_INDEX_RANGES: tuple[tuple[int, int], ...] = (
+    (0, 1), (0, 2), (1, 2),
+)
+
+
+def matrix_strategy() -> Any:
+    square = st.recursive(
+        st.sampled_from(MATRIX_SYMBOLS),
+        lambda children: st.one_of(
+            st.builds(MatMul, children, children),
+            st.builds(HadamardProduct, children, children),
+            st.builds(MatPow, children, st.sampled_from((2, 3, 0, -1, -2))),
+            st.builds(Transpose, children),
+        ),
+        max_leaves=4,
+    )
+    slices = st.builds(
+        _matrix_slice, st.sampled_from(MATRIX_SYMBOLS),
+        st.sampled_from(MATRIX_INDEX_RANGES),
+        st.sampled_from(MATRIX_INDEX_RANGES))
+    zeros = st.builds(
+        ZeroMatrix, st.sampled_from((2, 3)), st.sampled_from((2, 3)))
+    return st.one_of(square, slices, zeros)
 
 
 def atom_strategy(matrices: bool) -> Any:
@@ -424,7 +557,7 @@ def atom_strategy(matrices: bool) -> Any:
         return scalar
     matrix = st.builds(
         lambda predicate, subject: predicate(subject),
-        st.sampled_from(MATRIX_PREDICATES), st.sampled_from(MATRIX_SYMBOLS))
+        st.sampled_from(MATRIX_PREDICATES), matrix_strategy())
     return st.one_of(scalar, matrix)
 
 
@@ -448,7 +581,7 @@ def formula_strategy(matrices: bool) -> Any:
 def hypothesis_cases(draw: DrawFn, matrices: bool = True) -> Case:
     """Generate a query together with a model satisfying its assumptions."""
     values: dict[Any, Any] = {
-        symbol: draw(st.sampled_from(SCALAR_VALUES))
+        symbol: draw(st.sampled_from(declared_pool(symbol)))
         for symbol in SCALAR_SYMBOLS}
     if matrices:
         values.update({
